@@ -1,0 +1,26 @@
+{
+  "folders": [
+    { "name": "Root", "path": "." },
+    { "name": "Backend", "path": "backend" },
+    { "name": "Frontend", "path": "frontend" }
+  ],
+  "settings": {
+    "editor.formatOnSave": true,
+    "editor.tabSize": 2,
+    "files.exclude": {
+      "**/node_modules": true
+    }
+  },
+  "launch": {
+    "configurations": [
+      {
+        "name": "Run Backend",
+        "type": "node",
+        "request": "launch",
+        "program": "${workspaceFolder}/backend/server.js",
+        "cwd": "${workspaceFolder}/backend",
+        "envFile": "${workspaceFolder}/backend/.env"
+      }
+    ]
+  }
+}
