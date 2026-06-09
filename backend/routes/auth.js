@@ -75,8 +75,7 @@ function createInviteToken() {
 function createResetCode() {
   const code = String(crypto.randomInt(100000, 1000000));
   const hash = hashToken(code);
-  const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-  return { code, hash, expiresAt };
+  return { code, hash };
 }
 
 function loginKey(req, email) {
@@ -89,7 +88,7 @@ function getAttempt(key) {
   return attempt;
 }
 
-function registerFailedLogin(req, email, user) {
+async function registerFailedLogin(req, email, user) {
   const key = loginKey(req, email);
   const attempt = getAttempt(key);
   attempt.count += 1;
@@ -98,10 +97,10 @@ function registerFailedLogin(req, email, user) {
   if (user) {
     const dbCount = Number(user.failed_login_count || 0) + 1;
     const lockUntil = dbCount >= MAX_FAILED_LOGIN_ATTEMPTS ? new Date(Date.now() + LOGIN_LOCK_MINUTES * 60 * 1000).toISOString() : null;
-    db.prepare('UPDATE users SET failed_login_count = ?, lock_until = ? WHERE id = ?').run(dbCount, lockUntil, user.id);
-    logAudit(db, user.id, 'LOGIN_FAILED', 'users', user.id, null, { email: user.email, locked: Boolean(lockUntil) }, lockUntil ? 'Account temporarily locked' : 'Invalid password');
+    await db.run('UPDATE users SET failed_login_count = ?, lock_until = ? WHERE id = ?', dbCount, lockUntil, user.id);
+    await logAudit(db, user.id, 'LOGIN_FAILED', 'users', user.id, null, { email: user.email, locked: Boolean(lockUntil) }, lockUntil ? 'Account temporarily locked' : 'Invalid password');
   } else {
-    logAudit(db, null, 'LOGIN_FAILED', 'users', null, null, { email }, 'Invalid email');
+    await logAudit(db, null, 'LOGIN_FAILED', 'users', null, null, { email }, 'Invalid email');
   }
 
   return attempt.count >= MAX_FAILED_LOGIN_ATTEMPTS;
@@ -112,7 +111,7 @@ function isLocked(user) {
 }
 
 // Login
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
@@ -122,15 +121,15 @@ router.post('/login', (req, res) => {
     return res.status(429).json({ error: 'Too many login attempts. Try again later.' });
   }
 
-  const user = db.prepare(`
+  const user = await db.get(`
     SELECT id, name, email, password, role, permissions, is_verified, must_change_password,
       failed_login_count, lock_until, last_login
     FROM users
     WHERE email = ? AND is_active = 1
-  `).get(email);
+  `, email);
 
   if (!user) {
-    registerFailedLogin(req, email, null);
+    await registerFailedLogin(req, email, null);
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 
@@ -139,19 +138,19 @@ router.post('/login', (req, res) => {
   }
 
   if (!user.is_verified) {
-    logAudit(db, user.id, 'LOGIN_BLOCKED', 'users', user.id, null, { email: user.email }, 'Account not verified');
+    await logAudit(db, user.id, 'LOGIN_BLOCKED', 'users', user.id, null, { email: user.email }, 'Account not verified');
     return res.status(403).json({ error: 'Account is not verified. Please set your password using the invite link.' });
   }
 
   const validPassword = bcrypt.compareSync(password, user.password);
   if (!validPassword) {
-    const tooMany = registerFailedLogin(req, email, user);
+    const tooMany = await registerFailedLogin(req, email, user);
     return res.status(tooMany ? 429 : 401).json({ error: tooMany ? 'Too many login attempts. Try again later.' : 'Invalid credentials' });
   }
 
   loginAttempts.delete(key);
-  db.prepare('UPDATE users SET failed_login_count = 0, lock_until = NULL, last_login = CURRENT_TIMESTAMP WHERE id = ?').run(user.id);
-  logAudit(db, user.id, 'LOGIN_SUCCESS', 'users', user.id, null, { email: user.email }, 'User signed in');
+  await db.run('UPDATE users SET failed_login_count = 0, lock_until = NULL, last_login = CURRENT_TIMESTAMP WHERE id = ?', user.id);
+  await logAudit(db, user.id, 'LOGIN_SUCCESS', 'users', user.id, null, { email: user.email }, 'User signed in');
 
   const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '12h' });
   res.json({ token, user: publicUser(user) });
@@ -167,7 +166,7 @@ router.post('/register', authenticateToken, requireRole('admin'), async (req, re
   const { name, email, role, project_ids } = req.body;
   if (!name || !email) return res.status(400).json({ error: 'Name and email required' });
 
-  const exists = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+  const exists = await db.get('SELECT id FROM users WHERE email = ?', email);
   if (exists) return res.status(400).json({ error: 'Email already exists' });
 
   const roleName = role || 'viewer';
@@ -176,25 +175,25 @@ router.post('/register', authenticateToken, requireRole('admin'), async (req, re
   const disabledPassword = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10);
   const defaultPermissions = defaultPermissionsForRole(roleName);
 
-  const create = db.transaction(() => {
-    db.prepare(`
+  await db.transaction(async tx => {
+    await tx.run(`
       INSERT INTO users (
         id, name, email, password, role, permissions, is_verified, must_change_password,
         invite_token_hash, invite_expires_at
       )
       VALUES (?, ?, ?, ?, ?, ?, 0, 1, ?, ?)
-    `).run(id, name, email, disabledPassword, roleName, JSON.stringify(defaultPermissions), invite.hash, invite.expiresAt);
+    `, id, name, email, disabledPassword, roleName, JSON.stringify(defaultPermissions), invite.hash, invite.expiresAt);
 
     if (roleName !== 'admin' && Array.isArray(project_ids)) {
-      const grant = db.prepare('INSERT OR IGNORE INTO project_access (user_id, project_id, granted_by) VALUES (?, ?, ?)');
-      for (const projectId of project_ids.filter(Boolean)) grant.run(id, projectId, req.user.id);
+      for (const projectId of project_ids.filter(Boolean)) {
+        await tx.run('INSERT INTO project_access (user_id, project_id, granted_by) VALUES (?, ?, ?) ON CONFLICT (user_id, project_id) DO NOTHING', id, projectId, req.user.id);
+      }
     }
   });
 
-  create();
   const inviteUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/set-password/${invite.token}`;
   const emailResult = await sendInviteEmail({ to: email, name, inviteUrl, expiresAt: invite.expiresAt });
-  logAudit(
+  await logAudit(
     db,
     req.user.id,
     'CREATE',
@@ -216,43 +215,43 @@ router.post('/register', authenticateToken, requireRole('admin'), async (req, re
   });
 });
 
-router.get('/invite/:token', (req, res) => {
+router.get('/invite/:token', async (req, res) => {
   const hash = hashToken(req.params.token);
-  const user = db.prepare(`
+  const user = await db.get(`
     SELECT id, name, email, role, invite_expires_at, is_verified
     FROM users
     WHERE invite_token_hash = ? AND is_active = 1
-  `).get(hash);
+  `, hash);
   if (!user || user.is_verified || new Date(user.invite_expires_at).getTime() < Date.now()) {
     return res.status(404).json({ error: 'Invite link is invalid or expired' });
   }
   res.json({ name: user.name, email: user.email, role: user.role, expires_at: user.invite_expires_at });
 });
 
-router.post('/invite/:token/set-password', (req, res) => {
+router.post('/invite/:token/set-password', async (req, res) => {
   const { password } = req.body;
   const passwordError = validatePassword(password);
   if (passwordError) return res.status(400).json({ error: passwordError });
 
   const hash = hashToken(req.params.token);
-  const user = db.prepare(`
+  const user = await db.get(`
     SELECT id, name, email, invite_expires_at, is_verified
     FROM users
     WHERE invite_token_hash = ? AND is_active = 1
-  `).get(hash);
+  `, hash);
   if (!user || user.is_verified || new Date(user.invite_expires_at).getTime() < Date.now()) {
     return res.status(404).json({ error: 'Invite link is invalid or expired' });
   }
 
   const passwordHash = bcrypt.hashSync(password, 12);
-  db.prepare(`
+  await db.run(`
     UPDATE users
     SET password = ?, is_verified = 1, must_change_password = 0, invite_token_hash = NULL,
       invite_expires_at = NULL, password_changed_at = CURRENT_TIMESTAMP,
       failed_login_count = 0, lock_until = NULL
     WHERE id = ?
-  `).run(passwordHash, user.id);
-  logAudit(db, user.id, 'PASSWORD_SET', 'users', user.id, null, { email: user.email }, 'User verified account and set password');
+  `, passwordHash, user.id);
+  await logAudit(db, user.id, 'PASSWORD_SET', 'users', user.id, null, { email: user.email }, 'User verified account and set password');
   res.json({ message: 'Password set successfully. You can now sign in.' });
 });
 
@@ -260,21 +259,22 @@ router.post('/forgot-password', async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Email is required' });
 
-  const user = db.prepare('SELECT id, name, email, is_active, is_verified FROM users WHERE email = ?').get(email);
+  const user = await db.get('SELECT id, name, email, is_active, is_verified FROM users WHERE email = ?', email);
   if (!user || !user.is_active || !user.is_verified) {
-    logAudit(db, user?.id || null, 'PASSWORD_RESET_REQUEST', 'users', user?.id || null, null, { email, valid_user: false }, 'Password reset requested');
+    await logAudit(db, user?.id || null, 'PASSWORD_RESET_REQUEST', 'users', user?.id || null, null, { email, valid_user: false }, 'Password reset requested');
     return res.json({ message: 'If the email exists, a reset code has been sent.' });
   }
 
   const reset = createResetCode();
-  db.prepare(`
+  const updated = await db.get(`
     UPDATE users
-    SET reset_code_hash = ?, reset_code_expires_at = ?, reset_code_attempts = 0
+    SET reset_code_hash = ?, reset_code_expires_at = CURRENT_TIMESTAMP + INTERVAL '10 minutes', reset_code_attempts = 0
     WHERE id = ?
-  `).run(reset.hash, reset.expiresAt, user.id);
+    RETURNING reset_code_expires_at
+  `, reset.hash, user.id);
 
-  const emailResult = await sendPasswordResetCodeEmail({ to: user.email, name: user.name, code: reset.code, expiresAt: reset.expiresAt });
-  logAudit(
+  const emailResult = await sendPasswordResetCodeEmail({ to: user.email, name: user.name, code: reset.code, expiresAt: updated.reset_code_expires_at });
+  await logAudit(
     db,
     user.id,
     'PASSWORD_RESET_REQUEST',
@@ -292,18 +292,18 @@ router.post('/forgot-password', async (req, res) => {
   });
 });
 
-router.post('/reset-password', (req, res) => {
+router.post('/reset-password', async (req, res) => {
   const { email, code, new_password } = req.body;
   if (!email || !code || !new_password) return res.status(400).json({ error: 'Email, code, and new password are required' });
 
   const passwordError = validatePassword(new_password);
   if (passwordError) return res.status(400).json({ error: passwordError });
 
-  const user = db.prepare(`
+  const user = await db.get(`
     SELECT id, email, reset_code_hash, reset_code_expires_at, reset_code_attempts
     FROM users
     WHERE email = ? AND is_active = 1 AND is_verified = 1
-  `).get(email);
+  `, email);
 
   if (!user || !user.reset_code_hash || !user.reset_code_expires_at) {
     return res.status(400).json({ error: 'Invalid or expired reset code' });
@@ -318,66 +318,66 @@ router.post('/reset-password', (req, res) => {
   }
 
   if (hashToken(String(code).trim()) !== user.reset_code_hash) {
-    db.prepare('UPDATE users SET reset_code_attempts = COALESCE(reset_code_attempts, 0) + 1 WHERE id = ?').run(user.id);
-    logAudit(db, user.id, 'PASSWORD_RESET_FAILED', 'users', user.id, null, { email: user.email }, 'Invalid reset code');
+    await db.run('UPDATE users SET reset_code_attempts = COALESCE(reset_code_attempts, 0) + 1 WHERE id = ?', user.id);
+    await logAudit(db, user.id, 'PASSWORD_RESET_FAILED', 'users', user.id, null, { email: user.email }, 'Invalid reset code');
     return res.status(400).json({ error: 'Invalid reset code' });
   }
 
   const passwordHash = bcrypt.hashSync(new_password, 12);
-  db.prepare(`
+  await db.run(`
     UPDATE users
     SET password = ?, must_change_password = 0, failed_login_count = 0, lock_until = NULL,
       reset_code_hash = NULL, reset_code_expires_at = NULL, reset_code_attempts = 0,
       password_changed_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(passwordHash, user.id);
+  `, passwordHash, user.id);
 
-  logAudit(db, user.id, 'PASSWORD_RESET', 'users', user.id, null, { email: user.email }, 'Password reset by email code');
+  await logAudit(db, user.id, 'PASSWORD_RESET', 'users', user.id, null, { email: user.email }, 'Password reset by email code');
   res.json({ message: 'Password reset successfully. You can now sign in.' });
 });
 
-router.post('/change-password', authenticateToken, (req, res) => {
+router.post('/change-password', authenticateToken, async (req, res) => {
   const { current_password, new_password } = req.body;
   const passwordError = validatePassword(new_password);
   if (passwordError) return res.status(400).json({ error: passwordError });
 
-  const user = db.prepare('SELECT id, email, password FROM users WHERE id = ? AND is_active = 1').get(req.user.id);
+  const user = await db.get('SELECT id, email, password FROM users WHERE id = ? AND is_active = 1', req.user.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
   if (!bcrypt.compareSync(current_password || '', user.password)) {
-    logAudit(db, req.user.id, 'PASSWORD_CHANGE_FAILED', 'users', req.user.id, null, { email: user.email }, 'Current password incorrect');
+    await logAudit(db, req.user.id, 'PASSWORD_CHANGE_FAILED', 'users', req.user.id, null, { email: user.email }, 'Current password incorrect');
     return res.status(400).json({ error: 'Current password is incorrect' });
   }
 
   const passwordHash = bcrypt.hashSync(new_password, 12);
-  db.prepare(`
+  await db.run(`
     UPDATE users
     SET password = ?, must_change_password = 0, is_verified = 1, password_changed_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(passwordHash, user.id);
-  logAudit(db, req.user.id, 'PASSWORD_CHANGED', 'users', req.user.id, null, { email: user.email }, 'Password changed');
+  `, passwordHash, user.id);
+  await logAudit(db, req.user.id, 'PASSWORD_CHANGED', 'users', req.user.id, null, { email: user.email }, 'Password changed');
   res.json({ message: 'Password changed successfully' });
 });
 
-router.put('/profile', authenticateToken, (req, res) => {
+router.put('/profile', authenticateToken, async (req, res) => {
   const { name, phone, designation, department, address, avatar_url } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Name is required' });
   if (avatar_url && typeof avatar_url === 'string' && avatar_url.length > 500000) {
     return res.status(400).json({ error: 'Profile image is too large' });
   }
 
-  const old = db.prepare(`
+  const old = await db.get(`
     SELECT id, name, email, role, permissions, is_verified, must_change_password, last_login,
       phone, designation, department, address, avatar_url
     FROM users
     WHERE id = ?
-  `).get(req.user.id);
+  `, req.user.id);
   if (!old) return res.status(404).json({ error: 'User not found' });
 
-  db.prepare(`
+  await db.run(`
     UPDATE users
     SET name = ?, phone = ?, designation = ?, department = ?, address = ?, avatar_url = ?
     WHERE id = ?
-  `).run(
+  `,
     name.trim(),
     phone || null,
     designation || null,
@@ -387,27 +387,27 @@ router.put('/profile', authenticateToken, (req, res) => {
     req.user.id
   );
 
-  const updated = db.prepare(`
+  const updated = await db.get(`
     SELECT id, name, email, role, permissions, is_verified, must_change_password, last_login,
       phone, designation, department, address, avatar_url
     FROM users
     WHERE id = ?
-  `).get(req.user.id);
+  `, req.user.id);
 
-  logAudit(db, req.user.id, 'UPDATE', 'users', req.user.id, old, updated, 'Profile updated');
+  await logAudit(db, req.user.id, 'UPDATE', 'users', req.user.id, old, updated, 'Profile updated');
   res.json({ message: 'Profile updated', user: publicUser(updated) });
 });
 
 router.post('/users/:id/resend-invite', authenticateToken, requireRole('admin'), async (req, res) => {
-  const user = db.prepare('SELECT id, name, email, is_verified FROM users WHERE id = ?').get(req.params.id);
+  const user = await db.get('SELECT id, name, email, is_verified FROM users WHERE id = ?', req.params.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
   if (user.is_verified) return res.status(400).json({ error: 'User is already verified' });
 
   const invite = createInviteToken();
-  db.prepare('UPDATE users SET invite_token_hash = ?, invite_expires_at = ? WHERE id = ?').run(invite.hash, invite.expiresAt, user.id);
+  await db.run('UPDATE users SET invite_token_hash = ?, invite_expires_at = ? WHERE id = ?', invite.hash, invite.expiresAt, user.id);
   const inviteUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/set-password/${invite.token}`;
   const emailResult = await sendInviteEmail({ to: user.email, name: user.name, inviteUrl, expiresAt: invite.expiresAt });
-  logAudit(
+  await logAudit(
     db,
     req.user.id,
     'INVITE_RESENT',
@@ -427,30 +427,34 @@ router.post('/users/:id/resend-invite', authenticateToken, requireRole('admin'),
 });
 
 // Get all users (admin only)
-router.get('/users', authenticateToken, requireRole('admin'), (req, res) => {
-  const users = db.prepare(`
+router.get('/users', authenticateToken, requireRole('admin'), async (req, res) => {
+  const users = await db.all(`
     SELECT id, name, email, role, permissions, created_at, is_active, is_verified,
-      must_change_password, last_login, lock_until
+      must_change_password, invite_expires_at, last_login, lock_until
     FROM users
     ORDER BY created_at DESC
-  `).all();
-  const access = db.prepare(`
+  `);
+  const access = await db.all(`
     SELECT pa.user_id, p.id, p.name
     FROM project_access pa
     JOIN projects p ON pa.project_id = p.id
     WHERE p.is_active = 1
     ORDER BY p.name
-  `).all();
+  `);
   const byUser = access.reduce((map, row) => {
     if (!map[row.user_id]) map[row.user_id] = [];
     map[row.user_id].push({ id: row.id, name: row.name });
     return map;
   }, {});
-  res.json(users.map(user => ({ ...user, projects: user.role === 'admin' ? [] : (byUser[user.id] || []) })));
+  res.json(users.map(user => ({
+    ...user,
+    invite_expired: Boolean(!user.is_verified && user.invite_expires_at && new Date(user.invite_expires_at).getTime() < Date.now()),
+    projects: user.role === 'admin' ? [] : (byUser[user.id] || [])
+  })));
 });
 
 // Update user role/status/access
-router.patch('/users/:id', authenticateToken, requireRole('admin'), (req, res) => {
+router.patch('/users/:id', authenticateToken, requireRole('admin'), async (req, res) => {
   const { role, is_active, permissions, project_ids } = req.body;
   const updates = [];
   const values = [];
@@ -465,52 +469,51 @@ router.patch('/users/:id', authenticateToken, requireRole('admin'), (req, res) =
   if (is_active !== undefined) { updates.push('is_active = ?'); values.push(is_active ? 1 : 0); }
   if (permissions !== undefined) { updates.push('permissions = ?'); values.push(typeof permissions === 'string' ? permissions : JSON.stringify(permissions)); }
 
-  const old = db.prepare('SELECT id, name, email, role, permissions, is_active FROM users WHERE id = ?').get(req.params.id);
+  const old = await db.get('SELECT id, name, email, role, permissions, is_active FROM users WHERE id = ?', req.params.id);
   if (!old) return res.status(404).json({ error: 'User not found' });
   if (old.role === 'admin' && old.id !== req.user.id && role && role !== old.role) {
     return res.status(403).json({ error: 'One admin cannot change another admin role' });
   }
   if (!updates.length && project_ids === undefined) return res.status(400).json({ error: 'Nothing to update' });
 
-  const update = db.transaction(() => {
+  await db.transaction(async tx => {
     if (updates.length) {
       values.push(req.params.id);
-      db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+      await tx.run(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, ...values);
     }
 
     if (project_ids !== undefined) {
-      db.prepare('DELETE FROM project_access WHERE user_id = ?').run(req.params.id);
+      await tx.run('DELETE FROM project_access WHERE user_id = ?', req.params.id);
       const finalRole = role || old.role;
       if (finalRole !== 'admin' && Array.isArray(project_ids)) {
-        const grant = db.prepare('INSERT OR IGNORE INTO project_access (user_id, project_id, granted_by) VALUES (?, ?, ?)');
-        for (const projectId of project_ids.filter(Boolean)) grant.run(req.params.id, projectId, req.user.id);
+        for (const projectId of project_ids.filter(Boolean)) {
+          await tx.run('INSERT INTO project_access (user_id, project_id, granted_by) VALUES (?, ?, ?) ON CONFLICT (user_id, project_id) DO NOTHING', req.params.id, projectId, req.user.id);
+        }
       }
     }
   });
 
-  update();
-  logAudit(db, req.user.id, 'UPDATE', 'users', req.params.id, old, { role, is_active, permissions, project_ids }, 'User role/status/access updated');
+  await logAudit(db, req.user.id, 'UPDATE', 'users', req.params.id, old, { role, is_active, permissions, project_ids }, 'User role/status/access updated');
   res.json({ message: 'User updated' });
 });
 
-router.delete('/users/:id', authenticateToken, requireRole('admin'), (req, res) => {
+router.delete('/users/:id', authenticateToken, requireRole('admin'), async (req, res) => {
   if (req.params.id === req.user.id) {
     return res.status(400).json({ error: 'You cannot delete your own account' });
   }
 
-  const old = db.prepare('SELECT id, name, email, role, is_active FROM users WHERE id = ?').get(req.params.id);
+  const old = await db.get('SELECT id, name, email, role, is_active FROM users WHERE id = ?', req.params.id);
   if (!old) return res.status(404).json({ error: 'User not found' });
   if (old.role === 'admin') {
     return res.status(403).json({ error: 'Admin accounts cannot be deleted by another admin' });
   }
 
-  const remove = db.transaction(() => {
-    db.prepare('DELETE FROM project_access WHERE user_id = ?').run(req.params.id);
-    db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+  await db.transaction(async tx => {
+    await tx.run('DELETE FROM project_access WHERE user_id = ?', req.params.id);
+    await tx.run('DELETE FROM users WHERE id = ?', req.params.id);
   });
 
-  remove();
-  logAudit(db, req.user.id, 'DELETE', 'users', req.params.id, old, null, 'User account deleted by admin');
+  await logAudit(db, req.user.id, 'DELETE', 'users', req.params.id, old, null, 'User account deleted by admin');
   res.json({ message: 'User deleted' });
 });
 

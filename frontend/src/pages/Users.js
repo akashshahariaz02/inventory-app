@@ -40,7 +40,8 @@ export default function Users() {
     try {
       const res = await registerUser(form);
       setInviteResult(res.data);
-      toast.success('User invited!');
+      toast.success(res.data.email_sent ? 'Verification email sent successfully' : 'User created, but email failed');
+      if (!res.data.email_sent && res.data.email_error) toast.error(res.data.email_error);
       setShowModal(false);
       setForm({ name: '', email: '', role: 'viewer', project_ids: [] });
       load();
@@ -76,7 +77,9 @@ export default function Users() {
     try {
       const res = await resendInvite(user.id);
       setInviteResult(res.data);
-      toast.success('Invite generated');
+      toast.success(res.data.email_sent ? 'Verification email sent successfully' : 'Invite generated, but email failed');
+      if (!res.data.email_sent && res.data.email_error) toast.error(res.data.email_error);
+      load();
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to resend invite');
     }
@@ -119,6 +122,8 @@ export default function Users() {
   };
 
   const roleColors = { admin: 'badge-danger', store_manager: 'badge-warning', viewer: 'badge-info' };
+  const formatDateTime = (value) => value ? new Date(value).toLocaleString() : '-';
+  const canResendInvite = (u) => !u.is_verified || u.invite_expired;
 
   return (
     <div>
@@ -134,7 +139,7 @@ export default function Users() {
             {loading ? <div className="page-loading"><div className="spinner"></div></div> : (
               <table>
                 <thead>
-                  <tr><th>Name</th><th>Email</th><th>Role</th><th>Projects</th><th>Status</th><th>Security</th><th>Created</th><th>Actions</th></tr>
+                  <tr><th>Name</th><th>Email</th><th>Role</th><th>Projects</th><th>Status</th><th>Security</th><th>Invite Expires</th><th>Created</th><th>Actions</th></tr>
                 </thead>
                 <tbody>
                   {users.map(u => (
@@ -174,15 +179,20 @@ export default function Users() {
                       <td>
                         {u.is_verified ? (
                           <span className="badge badge-success">Verified</span>
+                        ) : u.invite_expired ? (
+                          <span className="badge badge-danger">Invite Expired</span>
                         ) : (
                           <span className="badge badge-warning">Pending Verify</span>
                         )}
                         {u.must_change_password ? <span className="badge badge-danger" style={{marginLeft:'6px'}}>Change Password</span> : null}
                       </td>
+                      <td className="text-muted">
+                        {u.is_verified ? '-' : formatDateTime(u.invite_expires_at)}
+                      </td>
                       <td className="text-muted">{u.created_at?.split('T')[0]}</td>
                       <td>
                         <button className="btn btn-sm btn-secondary" onClick={() => openPermissionsEditor(u)} style={{marginRight:'6px'}}>Edit</button>
-                        {!u.is_verified && <button className="btn btn-sm btn-primary" onClick={() => handleResendInvite(u)} style={{marginRight:'6px'}}>Invite</button>}
+                        {canResendInvite(u) && <button className="btn btn-sm btn-primary" onClick={() => handleResendInvite(u)} style={{marginRight:'6px'}}>{u.invite_expired ? 'Resend' : 'Invite'}</button>}
                         <button className={`btn btn-sm ${u.is_active ? 'btn-secondary' : 'btn-success'}`} onClick={() => handleToggle(u.id, u.is_active)}>
                           {u.is_active ? 'Deactivate' : 'Activate'}
                         </button>
@@ -289,10 +299,10 @@ export default function Users() {
               <button className="btn-close" onClick={() => setInviteResult(null)}>x</button>
             </div>
             <div className="modal-body">
-              <div className="alert alert-warning" style={{fontSize:'13px'}}>
+              <div className={`alert ${inviteResult.email_sent ? 'alert-success' : 'alert-warning'}`} style={{fontSize:'13px'}}>
                 {inviteResult.email_sent
-                  ? 'Verification email sent to the user. Keep this link as a backup.'
-                  : `Email was not sent${inviteResult.email_error ? `: ${inviteResult.email_error}` : ''}. Share this link with the user manually.`}
+                  ? 'Verification email sent successfully. Keep this link as a backup.'
+                  : `Email failed${inviteResult.email_error ? `: ${inviteResult.email_error}` : ''}. Check SMTP settings or share this link manually.`}
               </div>
               <div className="form-group">
                 <label className="form-label">Invite Link</label>

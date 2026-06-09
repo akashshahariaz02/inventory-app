@@ -6,7 +6,7 @@ const { logAudit } = require('../utils/audit');
 
 const router = express.Router();
 
-router.get('/', authenticateToken, (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   const query = req.user.role === 'admin' ? `
     SELECT p.*, u.name as created_by_name,
       (SELECT COUNT(*) FROM products WHERE project_id = p.id) as product_count
@@ -23,35 +23,35 @@ router.get('/', authenticateToken, (req, res) => {
     WHERE p.is_active = 1
     ORDER BY p.created_at ASC, p.name ASC
   `;
-  const projects = req.user.role === 'admin' ? db.prepare(query).all() : db.prepare(query).all(req.user.id);
+  const projects = req.user.role === 'admin' ? await db.all(query) : await db.all(query, req.user.id);
   res.json(projects);
 });
 
-router.get('/:id', authenticateToken, (req, res) => {
-  const project = db.prepare('SELECT * FROM projects WHERE id = ? AND is_active = 1').get(req.params.id);
+router.get('/:id', authenticateToken, async (req, res) => {
+  const project = await db.get('SELECT * FROM projects WHERE id = ? AND is_active = 1', req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
-  if (!hasProjectAccess(req.user.id, req.user.role, project.id)) {
+  if (!(await hasProjectAccess(req.user.id, req.user.role, project.id))) {
     return res.status(403).json({ error: 'You do not have access to this project' });
   }
   res.json(project);
 });
 
-router.post('/', authenticateToken, requireRole('admin'), (req, res) => {
+router.post('/', authenticateToken, requireRole('admin'), async (req, res) => {
   const { name, description } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Project name required' });
 
   const id = uuidv4();
   try {
-    db.prepare('INSERT INTO projects (id, name, description, created_by) VALUES (?, ?, ?, ?)').run(
+    await db.run('INSERT INTO projects (id, name, description, created_by) VALUES (?, ?, ?, ?)',
       id,
       name.trim(),
       description || null,
       req.user.id
     );
-    logAudit(db, req.user.id, 'CREATE', 'projects', id, null, { name, description }, description || 'Project created');
+    await logAudit(db, req.user.id, 'CREATE', 'projects', id, null, { name, description }, description || 'Project created');
     res.status(201).json({ message: 'Project created', id });
   } catch (err) {
-    if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+    if (err.code === '23505') {
       return res.status(400).json({ error: 'Project name already exists' });
     }
     throw err;

@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { getProcurements, createProcurement, deleteProcurement, getProducts, getCategories, createProduct } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { format } from 'date-fns';
 import { useParams } from 'react-router-dom';
+import { parseCsv, readTextFile } from '../utils/csv';
 
 const UNIT_OPTIONS = ['Nos', 'Cu.m', 'Rolls', 'Feet', 'Meter', 'Piece', 'Kg', 'Liter', 'Box', 'Roll'];
 const NEW_PRODUCT_VALUE = '__new_product__';
@@ -67,9 +68,16 @@ function ProcurementModal({ projectId, products, categories, onSave, onClose }) 
     setShowSuggestions(false);
   };
 
+  const selectNewProduct = () => {
+    const typedName = productSearch.trim();
+    setProduct('name', typedName);
+    setProductSearch(typedName ? `Add new product: ${typedName}` : 'Add new product');
+    set('product_id', NEW_PRODUCT_VALUE);
+    setShowSuggestions(false);
+  };
+
   useEffect(() => {
     if (form.product_id === NEW_PRODUCT_VALUE) {
-      setProductSearch('+ Add new product...');
       return;
     }
 
@@ -100,15 +108,28 @@ function ProcurementModal({ projectId, products, categories, onSave, onClose }) 
                 placeholder="Type to search product..."
                 required
               />
-              {showSuggestions && filteredProducts.length > 0 && (
-                <ul className="dropdown-menu show" style={{ display: 'block', maxHeight: '220px', overflowY: 'auto', width: '100%', position: 'static', marginTop: '4px' }}>
+              {showSuggestions && productSearch.trim() && (
+                <ul className="product-suggest-menu">
                   {filteredProducts.map(product => (
                     <li key={product.id}>
-                      <button type="button" className="dropdown-item" onMouseDown={e => e.preventDefault()} onClick={() => selectProduct(product)}>
+                      <button type="button" className="product-suggest-item" onMouseDown={e => e.preventDefault()} onClick={() => selectProduct(product)}>
                         {product.name}{product.size ? ` (${product.size})` : ''} — Stock: {product.current_stock} {product.unit}
                       </button>
                     </li>
                   ))}
+                  {filteredProducts.length === 0 && (
+                    <li>
+                      <div className="product-suggest-empty">
+                        No matching product found
+                      </div>
+                    </li>
+                  )}
+                  <li>
+                    <button type="button" className="product-suggest-add" onMouseDown={e => e.preventDefault()} onClick={selectNewProduct}>
+                      <span>+ Add new product</span>
+                      {productSearch.trim() && <strong>{productSearch.trim()}</strong>}
+                    </button>
+                  </li>
                 </ul>
               )}
             </div>
@@ -210,6 +231,7 @@ export default function Procurement() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const { hasPermission } = useAuth();
+  const importRef = useRef(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -234,6 +256,56 @@ export default function Procurement() {
     catch (err) { toast.error(err.response?.data?.error || 'Failed'); }
   };
 
+  const findProductForImport = (row) => {
+    if (row.product_id) return products.find(p => p.id === row.product_id);
+    const name = (row.product_name || row.product || row.name || '').trim().toLowerCase();
+    const size = (row.size || '').trim().toLowerCase();
+    if (!name) return null;
+    return products.find(p => {
+      const productName = (p.name || '').trim().toLowerCase();
+      const productSize = (p.size || '').trim().toLowerCase();
+      return productName === name && (!size || productSize === size);
+    });
+  };
+
+  const handleImport = async (file) => {
+    if (!file) return;
+    try {
+      const rows = parseCsv(await readTextFile(file));
+      if (!rows.length) return toast.error('CSV file is empty');
+
+      let created = 0;
+      let skipped = 0;
+      for (const row of rows) {
+        const product = findProductForImport(row);
+        const quantity = row.quantity || row.qty;
+        const rate = row.rate || row.unit_price;
+        if (!product || !quantity || !rate) {
+          skipped += 1;
+          continue;
+        }
+        await createProcurement({
+          project_id: projectId,
+          product_id: product.id,
+          supplier_name: row.supplier_name || row.supplier || '',
+          purchase_date: row.purchase_date || row.date || format(new Date(), 'yyyy-MM-dd'),
+          challan_number: row.challan_number || row.invoice_number || '',
+          quantity,
+          rate,
+          remarks: row.remarks || row.note || ''
+        });
+        created += 1;
+      }
+
+      toast.success(`${created} procurement row(s) imported${skipped ? `, ${skipped} skipped` : ''}`);
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to import procurements');
+    } finally {
+      if (importRef.current) importRef.current.value = '';
+    }
+  };
+
   const totalAmount = items.reduce((s, i) => s + (i.total_amount || 0), 0);
   const totalQty = items.reduce((s, i) => s + (i.quantity || 0), 0);
 
@@ -242,6 +314,12 @@ export default function Procurement() {
       <div className="page-header">
         <h2>IN / Procurement</h2>
         <div className="header-actions">
+          {hasPermission('Add Procurement (IN)') && (
+            <>
+              <input ref={importRef} type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={e => handleImport(e.target.files?.[0])} />
+              <button className="btn btn-secondary" onClick={() => importRef.current?.click()}>Import CSV</button>
+            </>
+          )}
           {hasPermission('Add Procurement (IN)') && <button className="btn btn-primary" onClick={() => setShowModal(true)}>+ New Entry</button>}
         </div>
       </div>
@@ -271,7 +349,7 @@ export default function Procurement() {
         <div className="card">
           <div className="table-container">
             {loading ? <div className="page-loading"><div className="spinner"></div></div> : (
-              <table>
+              <table className="responsive-table">
                 <thead>
                   <tr><th>Date</th><th>Product</th><th>Supplier</th><th>Challan</th><th>Quantity</th><th>Rate</th><th>Total</th><th>Remarks</th>{hasPermission('Delete Products') && <th></th>}</tr>
                 </thead>
@@ -280,15 +358,15 @@ export default function Procurement() {
                     <tr className="no-hover"><td colSpan={9} className="text-muted" style={{textAlign:'center',padding:'40px'}}>No procurement entries found</td></tr>
                   ) : items.map(item => (
                     <tr key={item.id} className="no-hover">
-                      <td className="text-muted">{item.purchase_date}</td>
-                      <td><strong>{item.product_name}</strong>{item.size && <span className="text-muted"> {item.size}</span>}</td>
-                      <td>{item.supplier_name || '—'}</td>
-                      <td>{item.challan_number || '—'}</td>
-                      <td className="text-success fw-600">+{Number(item.quantity).toLocaleString()} {item.unit}</td>
-                      <td>{item.rate ? `৳ ${item.rate}` : '—'}</td>
-                      <td className="fw-600">{item.total_amount ? `৳ ${Number(item.total_amount).toLocaleString()}` : '—'}</td>
-                      <td className="text-muted" style={{maxWidth:'150px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.remarks || '—'}</td>
-                      {hasPermission('Delete Products') && <td><button className="btn btn-danger btn-sm" onClick={() => handleDelete(item.id)}>Del</button></td>}
+                      <td data-label="Date" className="text-muted">{item.purchase_date}</td>
+                      <td data-label="Product"><strong>{item.product_name}</strong>{item.size && <span className="text-muted"> {item.size}</span>}</td>
+                      <td data-label="Supplier">{item.supplier_name || '—'}</td>
+                      <td data-label="Challan">{item.challan_number || '—'}</td>
+                      <td data-label="Quantity" className="text-success fw-600">+{Number(item.quantity).toLocaleString()} {item.unit}</td>
+                      <td data-label="Rate">{item.rate ? `৳ ${item.rate}` : '—'}</td>
+                      <td data-label="Total" className="fw-600">{item.total_amount ? `৳ ${Number(item.total_amount).toLocaleString()}` : '—'}</td>
+                      <td data-label="Remarks" className="text-muted" style={{maxWidth:'150px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.remarks || '—'}</td>
+                      {hasPermission('Delete Products') && <td data-label="Actions"><button className="btn btn-danger btn-sm" onClick={() => handleDelete(item.id)}>Del</button></td>}
                     </tr>
                   ))}
                 </tbody>

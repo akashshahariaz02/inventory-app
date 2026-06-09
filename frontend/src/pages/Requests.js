@@ -7,7 +7,8 @@ import {
   deleteRequest,
   approveRequest,
   rejectRequest,
-  getProducts
+  getProducts,
+  getProjects
 } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useParams } from 'react-router-dom';
@@ -23,82 +24,116 @@ function escapeHtml(value) {
     .replaceAll("'", '&#039;');
 }
 
-function printApprovedRequestInvoice(request) {
+function documentTemplate({ title, subtitle, requestNumber, projectName, date, preparedBy, approvedBy, bodyRows, metaRows, signatureLabels }) {
+  return `
+    <!doctype html>
+    <html>
+      <head>
+        <title>${escapeHtml(title)} - ${escapeHtml(requestNumber || '-')}</title>
+        <style>
+          * { box-sizing: border-box; }
+          body { font-family: Arial, sans-serif; color: #111827; margin: 32px; background: #f3f4f6; }
+          .toolbar { text-align: right; margin-bottom: 14px; }
+          .toolbar button { padding: 8px 14px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; cursor: pointer; }
+          .invoice { background: #fff; border: 1px solid #dbeafe; border-radius: 10px; overflow: hidden; }
+          .brand { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: center; padding: 22px 26px; border-bottom: 4px solid #1d4ed8; }
+          h1 { margin: 0; font-size: 28px; letter-spacing: .02em; }
+          .brand-hicc { color: #1d4ed8; }
+          .brand-src { color: #dc2626; }
+          .brand-jv { color: #111827; }
+          .subtitle { margin-top: 4px; color: #475569; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
+          .docno { text-align: right; font-size: 13px; line-height: 1.7; }
+          .docno strong { color: #0f172a; }
+          .section { padding: 22px 26px; }
+          .meta { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+          .meta th, .meta td { border: 1px solid #d1d5db; padding: 9px 10px; font-size: 13px; text-align: left; }
+          .meta th { width: 145px; background: #f8fafc; color: #334155; text-transform: uppercase; font-size: 11px; letter-spacing: .05em; }
+          h2 { margin: 0 0 12px; font-size: 15px; color: #0f172a; text-transform: uppercase; letter-spacing: .06em; }
+          .items { width: 100%; border-collapse: collapse; }
+          .items th, .items td { border: 1px solid #cbd5e1; padding: 10px; font-size: 13px; text-align: left; }
+          .items th { background: #1d4ed8; color: #fff; text-transform: uppercase; font-size: 11px; letter-spacing: .05em; }
+          .items td.qty { text-align: right; font-weight: 700; }
+          .signatures { display: grid; grid-template-columns: repeat(3, 1fr); gap: 36px; margin-top: 70px; }
+          .line { border-top: 1px solid #111827; padding-top: 8px; font-size: 12px; text-align: center; min-height: 34px; }
+          .footer { display: flex; justify-content: space-between; padding: 14px 26px; border-top: 1px solid #e5e7eb; color: #64748b; font-size: 11px; }
+          @media print {
+            body { margin: 0; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .toolbar { display: none; }
+            .invoice { border: none; border-radius: 0; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="toolbar"><button onclick="window.print()">Print / Save PDF</button></div>
+        <div class="invoice">
+          <div class="brand">
+            <div>
+              <h1><span class="brand-hicc">HICC</span>-<span class="brand-src">SRC</span> <span class="brand-jv">JV</span></h1>
+              <div class="subtitle">${escapeHtml(subtitle)}</div>
+            </div>
+            <div class="docno">
+              <div><strong>Project:</strong> ${escapeHtml(projectName || '-')}</div>
+              <div><strong>Req. No:</strong> ${escapeHtml(requestNumber || '-')}</div>
+              <div><strong>Date:</strong> ${escapeHtml(date || '-')}</div>
+            </div>
+          </div>
+          <div class="section">
+            <table class="meta">
+              <tbody>${metaRows}</tbody>
+            </table>
+            <h2>Material Details</h2>
+            <table class="items">
+              <thead><tr><th>SL</th><th>Product</th><th>Category</th><th>Size</th><th>Quantity</th><th>Unit</th></tr></thead>
+              <tbody>${bodyRows}</tbody>
+            </table>
+            <div class="signatures">
+              ${signatureLabels.map(label => `<div class="line">${escapeHtml(label)}</div>`).join('')}
+            </div>
+          </div>
+          <div class="footer">
+            <span>Prepared By: ${escapeHtml(preparedBy || '-')}</span>
+            <span>Approved By: ${escapeHtml(approvedBy || '-')}</span>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+function printApprovedRequestInvoice(request, projectName) {
   const invoice = window.open('', '_blank', 'width=900,height=700');
   if (!invoice) {
     toast.error('Please allow popups to generate the invoice PDF');
     return;
   }
 
-  invoice.document.write(`
-    <!doctype html>
-    <html>
-      <head>
-        <title>Approved Request Invoice - ${escapeHtml(request.request_number || request.id)}</title>
-        <style>
-          body { font-family: Arial, sans-serif; color: #111827; margin: 40px; background: #f8fafc; }
-          .invoice { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 28px; }
-          .header { display: flex; justify-content: space-between; border-bottom: 3px solid #2563eb; padding-bottom: 16px; margin-bottom: 24px; }
-          h1 { margin: 0; font-size: 28px; color: #2563eb; letter-spacing: .02em; }
-          h2 { margin: 0 0 14px; font-size: 16px; color: #111827; }
-          .muted { color: #6b7280; font-size: 12px; }
-          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-          th, td { text-align: left; border: 1px solid #d1d5db; padding: 10px; font-size: 13px; }
-          th { background: #eff6ff; color: #1d4ed8; }
-          .meta { width: 100%; margin-bottom: 18px; }
-          .meta th { width: 160px; }
-          .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; margin-top: 64px; }
-          .line { border-top: 1px solid #111827; padding-top: 8px; font-size: 12px; text-align: center; }
-          @media print { button { display: none; } body { margin: 0; background: #fff; } .invoice { border: none; border-radius: 0; } }
-        </style>
-      </head>
-      <body>
-        <button onclick="window.print()" style="float:right;padding:8px 14px;margin-bottom:16px;">Print / Save PDF</button>
-        <div class="invoice">
-          <div class="header">
-            <div>
-              <h1>HICC-SRC JV</h1>
-              <div class="muted">Approved Request Invoice</div>
-            </div>
-            <div>
-              <div><strong>Req. No:</strong> ${escapeHtml(request.request_number || '-')}</div>
-              <div><strong>Date:</strong> ${escapeHtml(request.created_at?.split('T')[0] || '-')}</div>
-            </div>
-          </div>
-          <table class="meta">
-            <tr>
-              <th>Requested By</th><td>${escapeHtml(request.requester_name || request.requester_display_name || '-')}</td>
-              <th>Approved By</th><td>${escapeHtml(request.approved_by || '-')}</td>
-            </tr>
-            <tr>
-              <th>Site Location</th><td>${escapeHtml(request.location || '-')}</td>
-              <th>Purpose</th><td>${escapeHtml(request.purpose || '-')}</td>
-            </tr>
-          </table>
-          <h2>Approved Requested Items</h2>
-          <table>
-            <thead>
-              <tr><th>Product</th><th>Size</th><th>Quantity</th><th>Unit</th></tr>
-            </thead>
-            <tbody>
-              ${(request.items || []).map(item => `
-                <tr>
-                  <td>${escapeHtml(item.product_name || '-')}</td>
-                  <td>${escapeHtml(item.size || '-')}</td>
-                  <td>${Number(item.quantity || 0).toLocaleString()}</td>
-                  <td>${escapeHtml(item.unit || '-')}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-          <div class="signatures">
-            <div class="line">Requested By</div>
-            <div class="line">Authorized Signature</div>
-          </div>
-        </div>
-      </body>
-    </html>
-  `);
+  const bodyRows = (request.items || []).map((item, index) => `
+    <tr>
+      <td>${index + 1}</td>
+      <td>${escapeHtml(item.product_name || '-')}</td>
+      <td>${escapeHtml(item.category_name || '-')}</td>
+      <td>${escapeHtml(item.size || '-')}</td>
+      <td class="qty">${Number(item.quantity || 0).toLocaleString()}</td>
+      <td>${escapeHtml(item.unit || '-')}</td>
+    </tr>
+  `).join('');
+  const metaRows = `
+    <tr><th>Requested By</th><td>${escapeHtml(request.requester_name || request.requester_display_name || '-')}</td><th>Status</th><td>${escapeHtml(request.status || '-')}</td></tr>
+    <tr><th>Site Location</th><td>${escapeHtml(request.location || '-')}</td><th>Approved At</th><td>${escapeHtml(request.approved_at?.split('T')[0] || '-')}</td></tr>
+    <tr><th>Purpose</th><td colspan="3">${escapeHtml(request.purpose || '-')}</td></tr>
+  `;
+  invoice.document.write(documentTemplate({
+    title: 'Approved Request',
+    subtitle: 'Approved Material Request',
+    requestNumber: request.request_number || request.id,
+    projectName,
+    date: request.created_at?.split('T')[0],
+    preparedBy: request.requester_name || request.requester_display_name,
+    approvedBy: request.approved_by,
+    metaRows,
+    bodyRows,
+    signatureLabels: ['Prepared By', 'Checked By', 'Approved Signature']
+  }));
   invoice.document.close();
 }
 
@@ -228,6 +263,7 @@ export default function Requests() {
   const { projectId } = useParams();
   const [requests, setRequests] = useState([]);
   const [products, setProducts] = useState([]);
+  const [projectName, setProjectName] = useState('');
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingRequest, setEditingRequest] = useState(null);
@@ -240,9 +276,14 @@ export default function Requests() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [rRes, pRes] = await Promise.all([getRequests({ project_id: projectId, status: statusFilter, search }), getProducts({ project_id: projectId })]);
+      const [rRes, pRes, projectsRes] = await Promise.all([
+        getRequests({ project_id: projectId, status: statusFilter, search }),
+        getProducts({ project_id: projectId }),
+        getProjects()
+      ]);
       setRequests(rRes.data);
       setProducts(pRes.data);
+      setProjectName(projectsRes.data.find(project => project.id === projectId)?.name || '');
     } catch {
       toast.error('Failed to load');
     } finally {
@@ -369,7 +410,7 @@ export default function Requests() {
                         ) : (
                           <div className="flex gap-2" style={{flexWrap:'wrap'}}>
                             {r.status === 'approved' && (
-                              <button className="btn btn-secondary btn-sm" onClick={() => printApprovedRequestInvoice(r)}>PDF</button>
+                              <button className="btn btn-secondary btn-sm" onClick={() => printApprovedRequestInvoice(r, projectName)}>PDF</button>
                             )}
                             <span className="text-muted" style={{fontSize:'11px'}}>{r.approved_by || 'Locked'}</span>
                           </div>

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { updateProfile } from '../api';
 import { useAuth } from '../context/AuthContext';
@@ -14,6 +15,7 @@ function readImageAsDataUrl(file) {
 
 export default function Profile() {
   const { user, loginUser } = useAuth();
+  const navigate = useNavigate();
   const [form, setForm] = useState({
     name: user?.name || '',
     phone: user?.phone || '',
@@ -108,7 +110,10 @@ export default function Profile() {
                 <textarea className="form-control" value={form.address} onChange={e => set('address', e.target.value)} placeholder="Optional personal address" />
               </div>
 
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save Profile'}</button>
+              <div className="flex gap-2" style={{flexWrap:'wrap'}}>
+                <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save Profile'}</button>
+                <button type="button" className="btn btn-secondary" onClick={() => navigate('/change-password')}>Change Password</button>
+              </div>
             </form>
           </div>
         </div>

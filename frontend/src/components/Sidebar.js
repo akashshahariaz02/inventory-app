@@ -16,6 +16,7 @@ const icons = {
   activity: <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 8v4l3 2m6-2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>,
   users: <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>,
   profile: <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.75 7.5a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.5 20.25a8.25 8.25 0 1115 0"/></svg>,
+  settings: <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M10.5 6h3m-7.2 7.5l1.5 2.6m8.4-2.6l-1.5 2.6M12 10a2 2 0 100 4 2 2 0 000-4zm8.25 2a8.25 8.25 0 11-16.5 0 8.25 8.25 0 0116.5 0z"/></svg>,
   logout: <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
 };
 
@@ -63,6 +64,9 @@ export default function Sidebar({ pendingCount, isOpen, onClose }) {
                 </NavLink>
                 <NavLink to="/activity" onClick={onClose} className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
                   {icons.activity} Activity Log
+                </NavLink>
+                <NavLink to="/settings" onClick={onClose} className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
+                  {icons.settings} Settings
                 </NavLink>
               </>
             )}

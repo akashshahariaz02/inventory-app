@@ -20,6 +20,7 @@ import ChangePassword from './pages/ChangePassword';
 import Profile from './pages/Profile';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
+import Settings from './pages/Settings';
 import './index.css';
 
 function ProtectedRoute({ children, roles }) {
@@ -72,6 +73,7 @@ function AppLayout() {
           <Route path="/projects/:projectId/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
           <Route path="/activity" element={<ProtectedRoute roles={['admin']}><ActivityLog /></ProtectedRoute>} />
           <Route path="/users" element={<ProtectedRoute roles={['admin']}><Users /></ProtectedRoute>} />
+          <Route path="/settings" element={<ProtectedRoute roles={['admin']}><Settings /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/change-password" element={<ProtectedRoute><ChangePassword /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/projects" replace />} />
@@ -82,6 +84,10 @@ function AppLayout() {
 }
 
 export default function App() {
+  useEffect(() => {
+    document.body.classList.toggle('theme-dark', localStorage.getItem('theme') === 'dark');
+  }, []);
+
   return (
     <BrowserRouter>
       <AuthProvider>

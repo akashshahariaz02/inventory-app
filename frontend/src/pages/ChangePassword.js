@@ -9,6 +9,7 @@ export default function ChangePassword() {
   const { user, loginUser } = useAuth();
   const [form, setForm] = useState({ current_password: '', new_password: '', confirm_password: '' });
   const [saving, setSaving] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const set = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
 
@@ -43,16 +44,22 @@ export default function ChangePassword() {
             <form onSubmit={handleSubmit}>
               <div className="form-group">
                 <label className="form-label">Current Password</label>
-                <input className="form-control" type="password" value={form.current_password} onChange={e => set('current_password', e.target.value)} required />
+                <input className="form-control" type={showPassword ? 'text' : 'password'} value={form.current_password} onChange={e => set('current_password', e.target.value)} required />
               </div>
               <div className="form-group">
                 <label className="form-label">New Password</label>
-                <input className="form-control" type="password" value={form.new_password} onChange={e => set('new_password', e.target.value)} required />
+                <input className="form-control" type={showPassword ? 'text' : 'password'} value={form.new_password} onChange={e => set('new_password', e.target.value)} required />
                 <div className="text-muted" style={{fontSize:'12px'}}>Minimum 10 characters with uppercase, lowercase, number, and symbol.</div>
               </div>
               <div className="form-group">
                 <label className="form-label">Confirm New Password</label>
-                <input className="form-control" type="password" value={form.confirm_password} onChange={e => set('confirm_password', e.target.value)} required />
+                <input className="form-control" type={showPassword ? 'text' : 'password'} value={form.confirm_password} onChange={e => set('confirm_password', e.target.value)} required />
+              </div>
+              <div className="form-group" style={{marginTop:'-6px'}}>
+                <label style={{display:'flex', alignItems:'center', gap:'8px', fontSize:'13px', color:'var(--text2)', cursor:'pointer'}}>
+                  <input type="checkbox" checked={showPassword} onChange={e => setShowPassword(e.target.checked)} />
+                  Show password
+                </label>
               </div>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Change Password'}</button>
             </form>

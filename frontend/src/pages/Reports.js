@@ -207,7 +207,40 @@ export default function Reports() {
         csvCell(movement),
       ].join(',');
     });
-    const csv  = [cols.map(csvCell).join(','), ...body].join('\r\n');
+    const categoryRows = (report.categoryTotals || []).map(row => [
+      csvCell(row.category), csvCell(row.products), csvCell(row.total_in),
+      csvCell(row.total_out), csvCell(row.balance), csvCell(row.total_value)
+    ].join(','));
+    const projectRows = (report.projectTotals || []).map(row => [
+      csvCell(row.project_name), csvCell(row.products), csvCell(row.total_in),
+      csvCell(row.total_out), csvCell(row.balance), csvCell(row.total_value)
+    ].join(','));
+    const supplierRows = (report.supplierTotals || []).map(row => [
+      csvCell(row.supplier_name), csvCell(row.entries), csvCell(row.total_qty), csvCell(row.total_value)
+    ].join(','));
+    const dateRows = (report.dateTotals || []).map(row => [
+      csvCell(row.date), csvCell(row.total_in), csvCell(row.total_out), csvCell(row.total_value)
+    ].join(','));
+    const csv = [
+      cols.map(csvCell).join(','),
+      ...body,
+      '',
+      csvCell('Project-wise Totals'),
+      ['Project','Products','IN','OUT','Balance','Procurement Value'].map(csvCell).join(','),
+      ...projectRows,
+      '',
+      csvCell('Category-wise Totals'),
+      ['Category','Products','IN','OUT','Balance','Procurement Value'].map(csvCell).join(','),
+      ...categoryRows,
+      '',
+      csvCell('Supplier-wise Totals'),
+      ['Supplier','Entries','Quantity','Procurement Value'].map(csvCell).join(','),
+      ...supplierRows,
+      '',
+      csvCell('Date-wise Totals'),
+      ['Date','IN','OUT','Procurement Value'].map(csvCell).join(','),
+      ...dateRows
+    ].join('\r\n');
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' }); // BOM for Excel
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -505,6 +538,27 @@ export default function Reports() {
                   </div>
                 )}
 
+                <div className="card" style={{ marginBottom:20 }}>
+                  <div className="card-header"><span className="card-title">Project-wise Totals</span></div>
+                  <div className="table-container">
+                    <table className="responsive-table">
+                      <thead><tr><th>Project</th><th>Products</th><th>IN</th><th>OUT</th><th>Balance</th><th>Value</th></tr></thead>
+                      <tbody>
+                        {(report.projectTotals || []).map(row => (
+                          <tr key={row.project_name} className="no-hover">
+                            <td data-label="Project"><strong>{row.project_name}</strong></td>
+                            <td data-label="Products">{fmt(row.products)}</td>
+                            <td data-label="IN" className="text-success fw-600">{fmt(row.total_in)}</td>
+                            <td data-label="OUT" className="text-danger fw-600">{fmt(row.total_out)}</td>
+                            <td data-label="Balance">{fmt(row.balance)}</td>
+                            <td data-label="Value">৳ {fmt(row.total_value)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
                 <div className="grid-2" style={{ marginBottom:20 }}>
                   {/* Category breakdown */}
                   <div className="card">
@@ -552,6 +606,73 @@ export default function Reports() {
                         </div>
                       ))}
                     </div>
+                  </div>
+                </div>
+
+                <div className="grid-2" style={{ marginBottom:20 }}>
+                  <div className="card">
+                    <div className="card-header"><span className="card-title">Category-wise Totals</span></div>
+                    <div className="table-container">
+                      <table className="responsive-table">
+                        <thead><tr><th>Category</th><th>Products</th><th>IN</th><th>OUT</th><th>Balance</th><th>Value</th></tr></thead>
+                        <tbody>
+                          {(report.categoryTotals || []).map(row => (
+                            <tr key={row.category} className="no-hover">
+                              <td data-label="Category"><strong>{row.category}</strong></td>
+                              <td data-label="Products">{fmt(row.products)}</td>
+                              <td data-label="IN" className="text-success fw-600">{fmt(row.total_in)}</td>
+                              <td data-label="OUT" className="text-danger fw-600">{fmt(row.total_out)}</td>
+                              <td data-label="Balance">{fmt(row.balance)}</td>
+                              <td data-label="Value">৳ {fmt(row.total_value)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="card">
+                    <div className="card-header"><span className="card-title">Supplier-wise Totals</span></div>
+                    <div className="table-container">
+                      <table className="responsive-table">
+                        <thead><tr><th>Supplier</th><th>Entries</th><th>Quantity</th><th>Value</th></tr></thead>
+                        <tbody>
+                          {(report.supplierTotals || []).map(row => (
+                            <tr key={row.supplier_name} className="no-hover">
+                              <td data-label="Supplier"><strong>{row.supplier_name}</strong></td>
+                              <td data-label="Entries">{fmt(row.entries)}</td>
+                              <td data-label="Quantity">{fmt(row.total_qty)}</td>
+                              <td data-label="Value">৳ {fmt(row.total_value)}</td>
+                            </tr>
+                          ))}
+                          {(!report.supplierTotals || report.supplierTotals.length === 0) && (
+                            <tr className="no-hover"><td colSpan={4} className="text-muted" style={{textAlign:'center', padding:'24px'}}>No supplier data in this period</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="card" style={{ marginBottom:20 }}>
+                  <div className="card-header"><span className="card-title">Date-wise Movement Totals</span></div>
+                  <div className="table-container">
+                    <table className="responsive-table">
+                      <thead><tr><th>Date</th><th>IN</th><th>OUT</th><th>Procurement Value</th></tr></thead>
+                      <tbody>
+                        {(report.dateTotals || []).map(row => (
+                          <tr key={row.date} className="no-hover">
+                            <td data-label="Date"><strong>{row.date}</strong></td>
+                            <td data-label="IN" className="text-success fw-600">{fmt(row.total_in)}</td>
+                            <td data-label="OUT" className="text-danger fw-600">{fmt(row.total_out)}</td>
+                            <td data-label="Procurement Value">৳ {fmt(row.total_value)}</td>
+                          </tr>
+                        ))}
+                        {(!report.dateTotals || report.dateTotals.length === 0) && (
+                          <tr className="no-hover"><td colSpan={4} className="text-muted" style={{textAlign:'center', padding:'24px'}}>No movement in this period</td></tr>
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
 

@@ -1,51 +1,54 @@
-function getProductStockTotals(db, productId) {
-  const product = db.prepare('SELECT id, project_id FROM products WHERE id = ?').get(productId);
+async function getProductStockTotals(db, productId) {
+  const product = await db.get('SELECT id, project_id FROM products WHERE id = ?', productId);
   if (!product) return null;
 
-  const totalIn = db.prepare(`
+  const totalInRow = await db.get(`
     SELECT COALESCE(SUM(quantity), 0) as total
     FROM procurements
     WHERE project_id = ? AND product_id = ?
-  `).get(product.project_id, product.id).total;
+  `, product.project_id, product.id);
 
-  const totalOut = db.prepare(`
+  const totalOutRow = await db.get(`
     SELECT COALESCE(SUM(quantity), 0) as total
     FROM issues
     WHERE project_id = ? AND product_id = ?
-  `).get(product.project_id, product.id).total;
+  `, product.project_id, product.id);
+
+  const totalIn = Number(totalInRow?.total || 0);
+  const totalOut = Number(totalOutRow?.total || 0);
 
   return {
-    totalIn: Number(totalIn || 0),
-    totalOut: Number(totalOut || 0),
-    balance: Number(totalIn || 0) - Number(totalOut || 0)
+    totalIn,
+    totalOut,
+    balance: totalIn - totalOut
   };
 }
 
-function recalculateProductStock(db, productId) {
-  const totals = getProductStockTotals(db, productId);
+async function recalculateProductStock(db, productId) {
+  const totals = await getProductStockTotals(db, productId);
   if (!totals) return null;
 
-  db.prepare('UPDATE products SET current_stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-    .run(totals.balance, productId);
-
+  await db.run('UPDATE products SET current_stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', totals.balance, productId);
   return totals;
 }
 
-function recalculateAllProductStock(db) {
-  const products = db.prepare('SELECT id FROM products').all();
+async function recalculateAllProductStock(db) {
+  const products = await db.all('SELECT id FROM products');
   const changed = [];
 
-  const updateAll = db.transaction(() => {
+  await db.transaction(async tx => {
     for (const product of products) {
-      const old = db.prepare('SELECT current_stock FROM products WHERE id = ?').get(product.id);
-      const totals = recalculateProductStock(db, product.id);
-      if (totals && Number(old.current_stock || 0) !== totals.balance) {
+      const old = await tx.get('SELECT current_stock FROM products WHERE id = ?', product.id);
+      const totals = await getProductStockTotals(tx, product.id);
+      if (!totals) continue;
+
+      await tx.run('UPDATE products SET current_stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', totals.balance, product.id);
+      if (Number(old.current_stock || 0) !== totals.balance) {
         changed.push({ id: product.id, old_stock: Number(old.current_stock || 0), new_stock: totals.balance });
       }
     }
   });
 
-  updateAll();
   return changed;
 }
 

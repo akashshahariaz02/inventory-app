@@ -1,21 +1,136 @@
-const Database = require('better-sqlite3');
-const path = require('path');
+const { Pool } = require('pg');
 
-const db = new Database(path.join(__dirname, 'inventory.db'));
+function cleanConnectionString(url) {
+  return (url || '').replace(/\?schema=public$/, '');
+}
 
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+function replacePlaceholders(sql) {
+  let index = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let result = '';
 
-function initializeDatabase() {
-  db.exec(`
+  for (let i = 0; i < sql.length; i += 1) {
+    const char = sql[i];
+    const previous = sql[i - 1];
+
+    if (char === "'" && !inDouble && previous !== '\\') inSingle = !inSingle;
+    if (char === '"' && !inSingle && previous !== '\\') inDouble = !inDouble;
+
+    if (char === '?' && !inSingle && !inDouble) {
+      index += 1;
+      result += `$${index}`;
+    } else {
+      result += char;
+    }
+  }
+
+  return result
+    .replace(/date\('now'\)/gi, 'CURRENT_DATE')
+    .replace(/datetime\('now'\)/gi, 'CURRENT_TIMESTAMP');
+}
+
+const databaseUrl = cleanConnectionString(process.env.DATABASE_URL);
+const pool = new Pool({
+  connectionString: databaseUrl,
+  max: Number(process.env.DB_POOL_MAX || 20),
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000
+});
+
+async function connectToMaintenanceDb() {
+  const url = new URL(databaseUrl);
+  const targetDatabase = url.pathname.replace('/', '') || 'postgres';
+  url.pathname = '/postgres';
+  const maintenancePool = new Pool({ connectionString: url.toString(), connectionTimeoutMillis: 10000 });
+  return { maintenancePool, targetDatabase };
+}
+
+async function ensureDatabaseExists() {
+  if (!databaseUrl) throw new Error('DATABASE_URL is required for PostgreSQL');
+
+  const { maintenancePool, targetDatabase } = await connectToMaintenanceDb();
+  try {
+    const existing = await maintenancePool.query('SELECT 1 FROM pg_database WHERE datname = $1', [targetDatabase]);
+    if (existing.rowCount === 0) {
+      await maintenancePool.query(`CREATE DATABASE "${targetDatabase.replace(/"/g, '""')}"`);
+    }
+  } finally {
+    await maintenancePool.end();
+  }
+}
+
+async function query(sql, params = [], client = pool) {
+  return client.query(replacePlaceholders(sql), params);
+}
+
+const db = {
+  async query(sql, params = []) {
+    return query(sql, params);
+  },
+  async get(sql, ...params) {
+    const result = await query(sql, params);
+    return result.rows[0];
+  },
+  async all(sql, ...params) {
+    const result = await query(sql, params);
+    return result.rows;
+  },
+  async run(sql, ...params) {
+    const result = await query(sql, params);
+    return { changes: result.rowCount, rows: result.rows };
+  },
+  async exec(sql) {
+    return query(sql);
+  },
+  async transaction(callback) {
+    const client = await pool.connect();
+    const tx = {
+      async get(sql, ...params) {
+        const result = await query(sql, params, client);
+        return result.rows[0];
+      },
+      async all(sql, ...params) {
+        const result = await query(sql, params, client);
+        return result.rows;
+      },
+      async run(sql, ...params) {
+        const result = await query(sql, params, client);
+        return { changes: result.rowCount, rows: result.rows };
+      },
+      async exec(sql) {
+        return query(sql, [], client);
+      }
+    };
+
+    try {
+      await client.query('BEGIN');
+      const value = await callback(tx);
+      await client.query('COMMIT');
+      return value;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
+  async close() {
+    await pool.end();
+  }
+};
+
+async function initializeDatabase() {
+  await ensureDatabaseExists();
+
+  await db.exec(`
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
       description TEXT,
       created_by TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      is_active INTEGER DEFAULT 1,
-      FOREIGN KEY(created_by) REFERENCES users(id)
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      is_active INTEGER DEFAULT 1
     );
 
     CREATE TABLE IF NOT EXISTS users (
@@ -25,43 +140,54 @@ function initializeDatabase() {
       password TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer' CHECK(role IN ('admin','store_manager','viewer')),
       permissions TEXT DEFAULT '{}',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      is_active INTEGER DEFAULT 1
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      is_active INTEGER DEFAULT 1,
+      is_verified INTEGER DEFAULT 1,
+      must_change_password INTEGER DEFAULT 0,
+      invite_token_hash TEXT,
+      invite_expires_at TIMESTAMP,
+      failed_login_count INTEGER DEFAULT 0,
+      lock_until TIMESTAMP,
+      last_login TIMESTAMP,
+      password_changed_at TIMESTAMP,
+      reset_code_hash TEXT,
+      reset_code_expires_at TIMESTAMP,
+      reset_code_attempts INTEGER DEFAULT 0,
+      phone TEXT,
+      designation TEXT,
+      department TEXT,
+      address TEXT,
+      avatar_url TEXT
     );
 
     CREATE TABLE IF NOT EXISTS project_access (
-      user_id TEXT NOT NULL,
-      project_id TEXT NOT NULL,
-      granted_by TEXT,
-      granted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY(user_id, project_id),
-      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
-      FOREIGN KEY(granted_by) REFERENCES users(id)
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      granted_by TEXT REFERENCES users(id),
+      granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY(user_id, project_id)
     );
 
     CREATE TABLE IF NOT EXISTS categories (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
       description TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS products (
       id TEXT PRIMARY KEY,
-      project_id TEXT,
+      project_id TEXT REFERENCES projects(id),
       name TEXT NOT NULL,
-      category_id TEXT,
+      category_id TEXT REFERENCES categories(id),
       size TEXT,
       unit TEXT NOT NULL DEFAULT 'Piece' CHECK(unit IN ('Feet','Meter','Piece','Kg','Liter','Box','Roll')),
       opening_stock REAL DEFAULT 0,
       current_stock REAL DEFAULT 0,
       minimum_stock REAL DEFAULT 0,
       description TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(project_id) REFERENCES projects(id),
-      FOREIGN KEY(category_id) REFERENCES categories(id)
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS suppliers (
@@ -70,13 +196,13 @@ function initializeDatabase() {
       contact TEXT,
       email TEXT,
       address TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS procurements (
       id TEXT PRIMARY KEY,
-      project_id TEXT,
-      product_id TEXT NOT NULL,
+      project_id TEXT REFERENCES projects(id),
+      product_id TEXT NOT NULL REFERENCES products(id),
       supplier_id TEXT,
       supplier_name TEXT,
       purchase_date DATE NOT NULL,
@@ -87,17 +213,14 @@ function initializeDatabase() {
       rate REAL NOT NULL,
       total_amount REAL NOT NULL,
       remarks TEXT,
-      created_by TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(project_id) REFERENCES projects(id),
-      FOREIGN KEY(product_id) REFERENCES products(id),
-      FOREIGN KEY(created_by) REFERENCES users(id)
+      created_by TEXT REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS issues (
       id TEXT PRIMARY KEY,
-      project_id TEXT,
-      product_id TEXT NOT NULL,
+      project_id TEXT REFERENCES projects(id),
+      product_id TEXT NOT NULL REFERENCES products(id),
       issue_date DATE NOT NULL,
       issued_to TEXT NOT NULL,
       project TEXT,
@@ -108,37 +231,31 @@ function initializeDatabase() {
       purpose TEXT,
       approved_by TEXT,
       remarks TEXT,
-      created_by TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(project_id) REFERENCES projects(id),
-      FOREIGN KEY(product_id) REFERENCES products(id),
-      FOREIGN KEY(created_by) REFERENCES users(id)
+      created_by TEXT REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS requests (
       id TEXT PRIMARY KEY,
-      project_id TEXT,
+      project_id TEXT REFERENCES projects(id),
       request_number TEXT NOT NULL,
-      product_id TEXT NOT NULL,
-      requested_by TEXT NOT NULL,
+      product_id TEXT NOT NULL REFERENCES products(id),
+      requested_by TEXT NOT NULL REFERENCES users(id),
       requester_name TEXT NOT NULL,
       location TEXT,
       quantity REAL NOT NULL,
       purpose TEXT,
       status TEXT DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
       approved_by TEXT,
-      approved_at DATETIME,
+      approved_at TIMESTAMP,
       rejection_reason TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(project_id) REFERENCES projects(id),
-      FOREIGN KEY(product_id) REFERENCES products(id),
-      FOREIGN KEY(requested_by) REFERENCES users(id)
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS quotations (
       id TEXT PRIMARY KEY,
-      project_id TEXT,
-      product_id TEXT,
+      project_id TEXT REFERENCES projects(id),
+      product_id TEXT REFERENCES products(id),
       product_name TEXT,
       supplier_name TEXT NOT NULL,
       quote_date DATE NOT NULL,
@@ -151,11 +268,8 @@ function initializeDatabase() {
       status TEXT DEFAULT 'pending' CHECK(status IN ('pending','selected','rejected')),
       file_path TEXT,
       notes TEXT,
-      created_by TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(project_id) REFERENCES projects(id),
-      FOREIGN KEY(product_id) REFERENCES products(id),
-      FOREIGN KEY(created_by) REFERENCES users(id)
+      created_by TEXT REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS audit_log (
@@ -168,199 +282,104 @@ function initializeDatabase() {
       old_value TEXT,
       new_value TEXT,
       reason TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
 
-  migrateDatabase();
+  await createDatabaseIndexes();
 
   const { v4: uuidv4 } = require('uuid');
   const bcrypt = require('bcryptjs');
-  const defaultProjectId = ensureDefaultProject();
+  const defaultProjectId = await ensureDefaultProject();
 
-  const adminExists = db.prepare('SELECT id FROM users WHERE email = ?').get('admin@inventory.com');
+  const adminExists = await db.get('SELECT id FROM users WHERE email = ?', 'admin@inventory.com');
   if (!adminExists) {
     const hashedPassword = bcrypt.hashSync('admin123', 10);
     const adminId = uuidv4();
-    db.prepare('INSERT INTO users (id, name, email, password, role) VALUES (?, ?, ?, ?, ?)').run(
-      adminId,
-      'System Admin',
-      'admin@inventory.com',
-      hashedPassword,
-      'admin'
-    );
-    db.prepare('UPDATE projects SET created_by = ? WHERE id = ? AND created_by IS NULL').run(adminId, defaultProjectId);
-
-    const categories = ['Pipe', 'Fitting', 'Valve', 'Flange', 'Cable', 'Cement', 'Steel', 'Other'];
-    const insertCat = db.prepare('INSERT OR IGNORE INTO categories (id, name) VALUES (?, ?)');
-    categories.forEach(cat => insertCat.run(uuidv4(), cat));
-
-    const catPipe = db.prepare("SELECT id FROM categories WHERE name = 'Pipe'").get();
-    const catFitting = db.prepare("SELECT id FROM categories WHERE name = 'Fitting'").get();
-    const catValve = db.prepare("SELECT id FROM categories WHERE name = 'Valve'").get();
-
-    const insertProduct = db.prepare(`
-      INSERT INTO products (id, project_id, name, category_id, size, unit, opening_stock, current_stock, minimum_stock)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    insertProduct.run(uuidv4(), defaultProjectId, 'GI Pipe', catPipe.id, '2"', 'Feet', 0, 721, 500);
-    insertProduct.run(uuidv4(), defaultProjectId, 'HDPE Pipe', catPipe.id, '4"', 'Meter', 0, 30, 100);
-    insertProduct.run(uuidv4(), defaultProjectId, 'MS Pipe', catPipe.id, '1.5"', 'Feet', 0, 1300, 200);
-    insertProduct.run(uuidv4(), defaultProjectId, 'Ball Valve', catValve.id, '3"', 'Piece', 0, 88, 20);
-    insertProduct.run(uuidv4(), defaultProjectId, 'Elbow 90 deg', catFitting.id, '1"', 'Piece', 0, 12, 50);
-
-    console.log('Database seeded with default admin: admin@inventory.com / admin123');
+    await db.run('INSERT INTO users (id, name, email, password, role) VALUES (?, ?, ?, ?, ?)', adminId, 'System Admin', 'admin@inventory.com', hashedPassword, 'admin');
+    await db.run('UPDATE projects SET created_by = ? WHERE id = ? AND created_by IS NULL', adminId, defaultProjectId);
   }
 
-  seedInventoryProducts(uuidv4);
-  assignExistingDataToDefaultProject();
-  assignExistingUsersToDefaultProject();
-  hardenExistingAuthState();
-  alignOpeningStockHistory(uuidv4);
+  await seedInventoryProducts(uuidv4);
+  await assignExistingUsersToDefaultProject();
+  await hardenExistingAuthState();
+  await alignOpeningStockHistory(uuidv4);
   const { recalculateAllProductStock } = require('./utils/stock');
-  recalculateAllProductStock(db);
+  await recalculateAllProductStock(db);
+  await optimizeDatabase();
 }
 
-function migrateDatabase() {
-  addColumnIfMissing('users', 'permissions', 'TEXT DEFAULT "{}"');
-  addColumnIfMissing('users', 'is_verified', 'INTEGER DEFAULT 1');
-  addColumnIfMissing('users', 'must_change_password', 'INTEGER DEFAULT 0');
-  addColumnIfMissing('users', 'invite_token_hash', 'TEXT');
-  addColumnIfMissing('users', 'invite_expires_at', 'DATETIME');
-  addColumnIfMissing('users', 'failed_login_count', 'INTEGER DEFAULT 0');
-  addColumnIfMissing('users', 'lock_until', 'DATETIME');
-  addColumnIfMissing('users', 'last_login', 'DATETIME');
-  addColumnIfMissing('users', 'password_changed_at', 'DATETIME');
-  addColumnIfMissing('users', 'reset_code_hash', 'TEXT');
-  addColumnIfMissing('users', 'reset_code_expires_at', 'DATETIME');
-  addColumnIfMissing('users', 'reset_code_attempts', 'INTEGER DEFAULT 0');
-  addColumnIfMissing('users', 'phone', 'TEXT');
-  addColumnIfMissing('users', 'designation', 'TEXT');
-  addColumnIfMissing('users', 'department', 'TEXT');
-  addColumnIfMissing('users', 'address', 'TEXT');
-  addColumnIfMissing('users', 'avatar_url', 'TEXT');
-  addColumnIfMissing('projects', 'description', 'TEXT');
-  addColumnIfMissing('projects', 'created_by', 'TEXT');
-  addColumnIfMissing('projects', 'created_at', 'DATETIME DEFAULT CURRENT_TIMESTAMP');
-  addColumnIfMissing('projects', 'is_active', 'INTEGER DEFAULT 1');
-  addColumnIfMissing('products', 'project_id', 'TEXT');
-  addColumnIfMissing('procurements', 'project_id', 'TEXT');
-  addColumnIfMissing('procurements', 'project', 'TEXT');
-  addColumnIfMissing('procurements', 'site_location', 'TEXT');
-  addColumnIfMissing('issues', 'project_id', 'TEXT');
-  addColumnIfMissing('issues', 'project', 'TEXT');
-  addColumnIfMissing('issues', 'site_location', 'TEXT');
-  addColumnIfMissing('requests', 'project_id', 'TEXT');
-  addColumnIfMissing('quotations', 'project_id', 'TEXT');
-  addColumnIfMissing('quotations', 'quantity', 'REAL DEFAULT 1');
-  addColumnIfMissing('quotations', 'total_amount', 'REAL DEFAULT 0');
-  addColumnIfMissing('audit_log', 'project_id', 'TEXT');
-  addColumnIfMissing('audit_log', 'reason', 'TEXT');
-
-  db.prepare('UPDATE quotations SET total_amount = COALESCE(quantity, 1) * rate WHERE total_amount IS NULL OR total_amount = 0').run();
-  db.prepare('UPDATE issues SET site_location = location WHERE site_location IS NULL AND location IS NOT NULL').run();
-
-  migrateRequestsForMultipleItems();
-  assignExistingDataToDefaultProject();
-  assignExistingUsersToDefaultProject();
-  hardenExistingAuthState();
+async function createDatabaseIndexes() {
+  await db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_users_role_active ON users(role, is_active);
+    CREATE INDEX IF NOT EXISTS idx_users_verified_active ON users(is_verified, is_active);
+    CREATE INDEX IF NOT EXISTS idx_project_access_project ON project_access(project_id);
+    CREATE INDEX IF NOT EXISTS idx_products_project ON products(project_id);
+    CREATE INDEX IF NOT EXISTS idx_products_project_category ON products(project_id, category_id);
+    CREATE INDEX IF NOT EXISTS idx_products_project_name ON products(project_id, name);
+    CREATE INDEX IF NOT EXISTS idx_procurements_project_product ON procurements(project_id, product_id);
+    CREATE INDEX IF NOT EXISTS idx_procurements_project_date ON procurements(project_id, purchase_date);
+    CREATE INDEX IF NOT EXISTS idx_procurements_project_created ON procurements(project_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_procurements_challan ON procurements(challan_number);
+    CREATE INDEX IF NOT EXISTS idx_procurements_supplier ON procurements(supplier_name);
+    CREATE INDEX IF NOT EXISTS idx_issues_project_product ON issues(project_id, product_id);
+    CREATE INDEX IF NOT EXISTS idx_issues_project_date ON issues(project_id, issue_date);
+    CREATE INDEX IF NOT EXISTS idx_issues_project_created ON issues(project_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_issues_request_number ON issues(request_number);
+    CREATE INDEX IF NOT EXISTS idx_issues_site_location ON issues(site_location);
+    CREATE INDEX IF NOT EXISTS idx_requests_project_status ON requests(project_id, status);
+    CREATE INDEX IF NOT EXISTS idx_requests_project_number ON requests(project_id, request_number);
+    CREATE INDEX IF NOT EXISTS idx_requests_requested_by ON requests(requested_by);
+    CREATE INDEX IF NOT EXISTS idx_requests_created ON requests(project_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_quotations_project_product ON quotations(project_id, product_id);
+    CREATE INDEX IF NOT EXISTS idx_quotations_project_status ON quotations(project_id, status);
+    CREATE INDEX IF NOT EXISTS idx_quotations_project_date ON quotations(project_id, quote_date);
+    CREATE INDEX IF NOT EXISTS idx_audit_project_created ON audit_log(project_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_audit_user_created ON audit_log(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_audit_table_record ON audit_log(table_name, record_id);
+  `);
 }
 
-function addColumnIfMissing(table, column, definition) {
-  const columns = db.prepare(`PRAGMA table_info(${table})`).all().map(col => col.name);
-  if (!columns.includes(column)) {
-    db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run();
-  }
+async function optimizeDatabase() {
+  await db.run('ANALYZE');
 }
 
-function ensureDefaultProject() {
+async function ensureDefaultProject() {
   const { v4: uuidv4 } = require('uuid');
-  const existing = db.prepare("SELECT id FROM projects WHERE name = 'SWTPPP-III'").get();
+  const existing = await db.get("SELECT id FROM projects WHERE name = 'SWTPPP-III'");
   if (existing) return existing.id;
-  const admin = db.prepare("SELECT id FROM users WHERE email = 'admin@inventory.com'").get();
+  const admin = await db.get("SELECT id FROM users WHERE email = 'admin@inventory.com'");
   const id = uuidv4();
-  db.prepare('INSERT INTO projects (id, name, description, created_by) VALUES (?, ?, ?, ?)').run(
-    id,
-    'SWTPPP-III',
-    'Default project for existing inventory data',
-    admin?.id || null
-  );
+  await db.run('INSERT INTO projects (id, name, description, created_by) VALUES (?, ?, ?, ?)', id, 'SWTPPP-III', 'Default project for existing inventory data', admin?.id || null);
   return id;
 }
 
-function assignExistingDataToDefaultProject() {
-  const defaultProjectId = ensureDefaultProject();
-  for (const table of ['products', 'procurements', 'issues', 'requests', 'quotations', 'audit_log']) {
-    const columns = db.prepare(`PRAGMA table_info(${table})`).all().map(col => col.name);
-    if (columns.includes('project_id')) {
-      db.prepare(`UPDATE ${table} SET project_id = ? WHERE project_id IS NULL OR project_id = ''`).run(defaultProjectId);
-    }
-  }
-}
-
-function assignExistingUsersToDefaultProject() {
-  const defaultProjectId = ensureDefaultProject();
-  const admin = db.prepare("SELECT id FROM users WHERE email = 'admin@inventory.com'").get();
-  const users = db.prepare("SELECT id FROM users WHERE role != 'admin'").all();
-  const grant = db.prepare('INSERT OR IGNORE INTO project_access (user_id, project_id, granted_by) VALUES (?, ?, ?)');
+async function assignExistingUsersToDefaultProject() {
+  const defaultProjectId = await ensureDefaultProject();
+  const admin = await db.get("SELECT id FROM users WHERE email = 'admin@inventory.com'");
+  const users = await db.all("SELECT id FROM users WHERE role != 'admin'");
   for (const user of users) {
-    grant.run(user.id, defaultProjectId, admin?.id || null);
-  }
-}
-
-function hardenExistingAuthState() {
-  const bcrypt = require('bcryptjs');
-  db.prepare('UPDATE users SET is_verified = 1 WHERE is_verified IS NULL').run();
-  db.prepare('UPDATE users SET failed_login_count = 0 WHERE failed_login_count IS NULL').run();
-
-  const admin = db.prepare("SELECT id, password FROM users WHERE email = 'admin@inventory.com'").get();
-  if (admin?.password && bcrypt.compareSync('admin123', admin.password)) {
-    db.prepare('UPDATE users SET must_change_password = 1, is_verified = 1 WHERE id = ?').run(admin.id);
-  }
-}
-
-function migrateRequestsForMultipleItems() {
-  const requestTable = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'requests'").get();
-  if (!requestTable?.sql?.includes('request_number TEXT UNIQUE')) return;
-
-  db.pragma('foreign_keys = OFF');
-  db.exec(`
-    CREATE TABLE requests_new (
-      id TEXT PRIMARY KEY,
-      project_id TEXT,
-      request_number TEXT NOT NULL,
-      product_id TEXT NOT NULL,
-      requested_by TEXT NOT NULL,
-      requester_name TEXT NOT NULL,
-      location TEXT,
-      quantity REAL NOT NULL,
-      purpose TEXT,
-      status TEXT DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
-      approved_by TEXT,
-      approved_at DATETIME,
-      rejection_reason TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(project_id) REFERENCES projects(id),
-      FOREIGN KEY(product_id) REFERENCES products(id),
-      FOREIGN KEY(requested_by) REFERENCES users(id)
+    await db.run(
+      'INSERT INTO project_access (user_id, project_id, granted_by) VALUES (?, ?, ?) ON CONFLICT (user_id, project_id) DO NOTHING',
+      user.id,
+      defaultProjectId,
+      admin?.id || null
     );
-
-    INSERT INTO requests_new (
-      id, project_id, request_number, product_id, requested_by, requester_name, location, quantity, purpose,
-      status, approved_by, approved_at, rejection_reason, created_at
-    )
-    SELECT
-      id, project_id, request_number, product_id, requested_by, requester_name, location, quantity, purpose,
-      status, approved_by, approved_at, rejection_reason, created_at
-    FROM requests;
-
-    DROP TABLE requests;
-    ALTER TABLE requests_new RENAME TO requests;
-  `);
-  db.pragma('foreign_keys = ON');
+  }
 }
 
-function seedInventoryProducts(uuidv4) {
+async function hardenExistingAuthState() {
+  const bcrypt = require('bcryptjs');
+  await db.run('UPDATE users SET is_verified = 1 WHERE is_verified IS NULL');
+  await db.run('UPDATE users SET failed_login_count = 0 WHERE failed_login_count IS NULL');
+
+  const admin = await db.get("SELECT id, password FROM users WHERE email = 'admin@inventory.com'");
+  if (admin?.password && bcrypt.compareSync('admin123', admin.password)) {
+    await db.run('UPDATE users SET must_change_password = 1, is_verified = 1 WHERE id = ?', admin.id);
+  }
+}
+
+async function seedInventoryProducts(uuidv4) {
   const inventoryProducts = [
     { name: 'Ductile iron pipe, restrained', category: 'Pipe', size: 'DN700', unit: 'Meter', totalIn: 30, balance: 30, minStock: 10 },
     { name: 'HDPE pipe SDR17', category: 'Pipe', size: 'OD 800', unit: 'Meter', totalIn: 1721, balance: 1721, minStock: 100 },
@@ -383,91 +402,63 @@ function seedInventoryProducts(uuidv4) {
     { name: 'Flange adapter for HDPE', category: 'Fitting', size: 'DN400/OD400', unit: 'Piece', totalIn: 23, balance: 23, minStock: 5 }
   ];
 
-  const seed = db.transaction(() => {
-    const defaultProjectId = ensureDefaultProject();
-    const insertCategory = db.prepare('INSERT OR IGNORE INTO categories (id, name) VALUES (?, ?)');
-    const findCategory = db.prepare('SELECT id FROM categories WHERE name = ?');
-    const findProduct = db.prepare(`
-      SELECT p.id
-      FROM products p
-      JOIN categories c ON p.category_id = c.id
-      WHERE p.project_id = ? AND p.name = ? AND p.size = ? AND c.name = ?
-    `);
-    const insertProduct = db.prepare(`
-      INSERT INTO products (id, project_id, name, category_id, size, unit, opening_stock, current_stock, minimum_stock, description)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const findOpeningProcurement = db.prepare(`
-      SELECT id FROM procurements
-      WHERE project_id = ? AND product_id = ? AND supplier_name = 'Opening Stock' AND remarks = 'Initial inventory import'
-    `);
-    const insertOpeningProcurement = db.prepare(`
-      INSERT INTO procurements (id, project_id, product_id, supplier_name, purchase_date, challan_number, quantity, rate, total_amount, remarks, created_by)
-      VALUES (?, ?, ?, 'Opening Stock', date('now'), ?, ?, 0, 0, 'Initial inventory import', ?)
-    `);
-    const admin = db.prepare("SELECT id FROM users WHERE email = 'admin@inventory.com'").get();
+  await db.transaction(async tx => {
+    const defaultProjectId = await ensureDefaultProject();
+    const admin = await tx.get("SELECT id FROM users WHERE email = 'admin@inventory.com'");
 
     for (const item of inventoryProducts) {
-      insertCategory.run(uuidv4(), item.category);
-      const category = findCategory.get(item.category);
-      let product = findProduct.get(defaultProjectId, item.name, item.size, item.category);
+      await tx.run('INSERT INTO categories (id, name) VALUES (?, ?) ON CONFLICT (name) DO NOTHING', uuidv4(), item.category);
+      const category = await tx.get('SELECT id FROM categories WHERE name = ?', item.category);
+      let product = await tx.get(`
+        SELECT p.id
+        FROM products p
+        JOIN categories c ON p.category_id = c.id
+        WHERE p.project_id = ? AND p.name = ? AND p.size = ? AND c.name = ?
+      `, defaultProjectId, item.name, item.size, item.category);
 
       if (!product) {
         const productId = uuidv4();
-        insertProduct.run(
-          productId,
-          defaultProjectId,
-          item.name,
-          category.id,
-          item.size,
-          item.unit,
-          item.balance,
-          item.balance,
-          item.minStock,
-          'Imported from inventory_products seed data'
-        );
+        await tx.run(`
+          INSERT INTO products (id, project_id, name, category_id, size, unit, opening_stock, current_stock, minimum_stock, description)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, productId, defaultProjectId, item.name, category.id, item.size, item.unit, item.balance, item.balance, item.minStock, 'Imported from inventory_products seed data');
         product = { id: productId };
       }
 
-      if (item.totalIn > 0 && !findOpeningProcurement.get(defaultProjectId, product.id)) {
-        insertOpeningProcurement.run(uuidv4(), defaultProjectId, product.id, `OPENING-${product.id.slice(0, 8)}`, item.totalIn, admin?.id || null);
+      const opening = await tx.get(`
+        SELECT id FROM procurements
+        WHERE project_id = ? AND product_id = ? AND supplier_name = 'Opening Stock' AND remarks = 'Initial inventory import'
+      `, defaultProjectId, product.id);
+
+      if (item.totalIn > 0 && !opening) {
+        await tx.run(`
+          INSERT INTO procurements (id, project_id, product_id, supplier_name, purchase_date, challan_number, quantity, rate, total_amount, remarks, created_by)
+          VALUES (?, ?, ?, 'Opening Stock', CURRENT_DATE, ?, ?, 0, 0, 'Initial inventory import', ?)
+        `, uuidv4(), defaultProjectId, product.id, `OPENING-${product.id.slice(0, 8)}`, item.totalIn, admin?.id || null);
       }
     }
   });
-
-  seed();
 }
 
-function alignOpeningStockHistory(uuidv4) {
-  const products = db.prepare('SELECT id, project_id, current_stock FROM products').all();
-  const totalIn = db.prepare('SELECT COALESCE(SUM(quantity), 0) as total FROM procurements WHERE project_id = ? AND product_id = ?');
-  const totalOut = db.prepare('SELECT COALESCE(SUM(quantity), 0) as total FROM issues WHERE project_id = ? AND product_id = ?');
-  const insertAdjustment = db.prepare(`
-    INSERT INTO procurements (id, project_id, product_id, supplier_name, purchase_date, challan_number, quantity, rate, total_amount, remarks, created_by)
-    VALUES (?, ?, ?, 'Opening Stock', date('now'), ?, ?, 0, 0, 'Initial stock history alignment', ?)
-  `);
-  const admin = db.prepare("SELECT id FROM users WHERE email = 'admin@inventory.com'").get();
+async function alignOpeningStockHistory(uuidv4) {
+  const products = await db.all('SELECT id, project_id, current_stock FROM products');
+  const admin = await db.get("SELECT id FROM users WHERE email = 'admin@inventory.com'");
 
-  const align = db.transaction(() => {
+  await db.transaction(async tx => {
     for (const product of products) {
-      const existingIn = totalIn.get(product.project_id, product.id).total;
-      if (existingIn > 0) continue;
+      const totalIn = await tx.get('SELECT COALESCE(SUM(quantity), 0) as total FROM procurements WHERE project_id = ? AND product_id = ?', product.project_id, product.id);
+      if (Number(totalIn.total || 0) > 0) continue;
 
-      const missingIn = product.current_stock + totalOut.get(product.project_id, product.id).total;
+      const totalOut = await tx.get('SELECT COALESCE(SUM(quantity), 0) as total FROM issues WHERE project_id = ? AND product_id = ?', product.project_id, product.id);
+      const missingIn = Number(product.current_stock || 0) + Number(totalOut.total || 0);
       if (missingIn > 0) {
-        insertAdjustment.run(
-          uuidv4(),
-          product.project_id,
-          product.id,
-          `OPENING-ALIGN-${product.id.slice(0, 8)}`,
-          missingIn,
-          admin?.id || null
-        );
+        await tx.run(`
+          INSERT INTO procurements (id, project_id, product_id, supplier_name, purchase_date, challan_number, quantity, rate, total_amount, remarks, created_by)
+          VALUES (?, ?, ?, 'Opening Stock', CURRENT_DATE, ?, ?, 0, 0, 'Initial stock history alignment', ?)
+        `, uuidv4(), product.project_id, product.id, `OPENING-ALIGN-${product.id.slice(0, 8)}`, missingIn, admin?.id || null);
       }
     }
   });
-
-  align();
 }
 
 module.exports = { db, initializeDatabase };

@@ -100,6 +100,43 @@ async function sendPasswordResetCodeEmail({ to, name, code, expiresAt }) {
   }
 }
 
+async function sendBackupEmail({ to, filePath, fileName }) {
+  if (!isEmailConfigured()) {
+    return { sent: false, reason: nodemailer ? 'Email settings are incomplete' : 'nodemailer is not installed' };
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT),
+    secure: String(process.env.SMTP_SECURE || '').toLowerCase() === 'true',
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
+
+  try {
+    await transporter.sendMail({
+      from: process.env.MAIL_FROM,
+      to,
+      subject: `HICC-SRC JV Inventory Backup - ${fileName}`,
+      html: `
+        <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.6">
+          <h2 style="color:#2563eb;margin-bottom:8px">HICC-SRC JV Inventory Backup</h2>
+          <p>A PostgreSQL database backup has been generated and attached.</p>
+          <p><strong>File:</strong> ${escapeHtml(fileName)}</p>
+          <p style="color:#6b7280;font-size:12px">Keep this file private. It contains inventory and user data.</p>
+        </div>
+      `,
+      attachments: [{ filename: fileName, path: filePath }],
+    });
+
+    return { sent: true };
+  } catch (err) {
+    return { sent: false, reason: friendlyMailError(err) };
+  }
+}
+
 function friendlyMailError(err) {
   const message = err?.message || '';
   if (message.includes('535') || message.toLowerCase().includes('badcredentials') || message.toLowerCase().includes('username and password not accepted')) {
@@ -120,4 +157,4 @@ function escapeHtml(value) {
     .replaceAll("'", '&#039;');
 }
 
-module.exports = { sendInviteEmail, sendPasswordResetCodeEmail, isEmailConfigured };
+module.exports = { sendInviteEmail, sendPasswordResetCodeEmail, sendBackupEmail, isEmailConfigured };

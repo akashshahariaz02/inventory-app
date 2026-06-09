@@ -88,10 +88,10 @@ function IssueModal({ projectId, projectName, products, onSave, onClose }) {
                 required
               />
               {showSuggestions && filteredProducts.length > 0 && (
-                <ul className="dropdown-menu show" style={{ display: 'block', maxHeight: '220px', overflowY: 'auto', width: '100%', position: 'static', marginTop: '4px' }}>
+                <ul className="product-suggest-menu">
                   {filteredProducts.map(product => (
                     <li key={product.id}>
-                      <button type="button" className="dropdown-item" onMouseDown={e => e.preventDefault()} onClick={() => selectProduct(product)}>
+                      <button type="button" className="product-suggest-item" onMouseDown={e => e.preventDefault()} onClick={() => selectProduct(product)}>
                         {product.name}{product.size ? ` (${product.size})` : ''} — Available: {product.current_stock} {product.unit}
                       </button>
                     </li>
@@ -169,6 +169,87 @@ function escapeHtml(value) {
     .replaceAll("'", '&#039;');
 }
 
+function issueDocumentTemplate({ requestNumber, projectName, date, issuedTo, siteLocation, preparedBy, approvedBy, bodyRows }) {
+  return `
+    <!doctype html>
+    <html>
+      <head>
+        <title>Issue Invoice - ${escapeHtml(requestNumber || '-')}</title>
+        <style>
+          * { box-sizing: border-box; }
+          body { font-family: Arial, sans-serif; color: #111827; margin: 32px; background: #f3f4f6; }
+          .toolbar { text-align: right; margin-bottom: 14px; }
+          .toolbar button { padding: 8px 14px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; cursor: pointer; }
+          .invoice { background: #fff; border: 1px solid #dbeafe; border-radius: 10px; overflow: hidden; }
+          .brand { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: center; padding: 22px 26px; border-bottom: 4px solid #1d4ed8; }
+          h1 { margin: 0; font-size: 28px; letter-spacing: .02em; }
+          .brand-hicc { color: #1d4ed8; }
+          .brand-src { color: #dc2626; }
+          .brand-jv { color: #111827; }
+          .subtitle { margin-top: 4px; color: #475569; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
+          .docno { text-align: right; font-size: 13px; line-height: 1.7; }
+          .docno strong { color: #0f172a; }
+          .section { padding: 22px 26px; }
+          .meta { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+          .meta th, .meta td { border: 1px solid #d1d5db; padding: 9px 10px; font-size: 13px; text-align: left; }
+          .meta th { width: 145px; background: #f8fafc; color: #334155; text-transform: uppercase; font-size: 11px; letter-spacing: .05em; }
+          h2 { margin: 0 0 12px; font-size: 15px; color: #0f172a; text-transform: uppercase; letter-spacing: .06em; }
+          .items { width: 100%; border-collapse: collapse; }
+          .items th, .items td { border: 1px solid #cbd5e1; padding: 10px; font-size: 13px; text-align: left; }
+          .items th { background: #1d4ed8; color: #fff; text-transform: uppercase; font-size: 11px; letter-spacing: .05em; }
+          .items td.qty { text-align: right; font-weight: 700; }
+          .signatures { display: grid; grid-template-columns: repeat(3, 1fr); gap: 36px; margin-top: 70px; }
+          .line { border-top: 1px solid #111827; padding-top: 8px; font-size: 12px; text-align: center; min-height: 34px; }
+          .footer { display: flex; justify-content: space-between; padding: 14px 26px; border-top: 1px solid #e5e7eb; color: #64748b; font-size: 11px; }
+          @media print {
+            body { margin: 0; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .toolbar { display: none; }
+            .invoice { border: none; border-radius: 0; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="toolbar"><button onclick="window.print()">Print / Save PDF</button></div>
+        <div class="invoice">
+          <div class="brand">
+            <div>
+              <h1><span class="brand-hicc">HICC</span>-<span class="brand-src">SRC</span> <span class="brand-jv">JV</span></h1>
+              <div class="subtitle">Material Issue Invoice</div>
+            </div>
+            <div class="docno">
+              <div><strong>Project:</strong> ${escapeHtml(projectName || '-')}</div>
+              <div><strong>Req. No:</strong> ${escapeHtml(requestNumber || '-')}</div>
+              <div><strong>Date:</strong> ${escapeHtml(date || '-')}</div>
+            </div>
+          </div>
+          <div class="section">
+            <table class="meta">
+              <tbody>
+                <tr><th>Issued To</th><td>${escapeHtml(issuedTo || '-')}</td><th>Prepared By</th><td>${escapeHtml(preparedBy || '-')}</td></tr>
+                <tr><th>Site Location</th><td>${escapeHtml(siteLocation || '-')}</td><th>Approved By</th><td>${escapeHtml(approvedBy || '-')}</td></tr>
+              </tbody>
+            </table>
+            <h2>Issued Material Details</h2>
+            <table class="items">
+              <thead><tr><th>SL</th><th>Product</th><th>Category</th><th>Size</th><th>Quantity</th><th>Unit</th></tr></thead>
+              <tbody>${bodyRows}</tbody>
+            </table>
+            <div class="signatures">
+              <div class="line">Prepared By</div>
+              <div class="line">Received By</div>
+              <div class="line">Approved Signature</div>
+            </div>
+          </div>
+          <div class="footer">
+            <span>Prepared By: ${escapeHtml(preparedBy || '-')}</span>
+            <span>Approved By: ${escapeHtml(approvedBy || '-')}</span>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+}
+
 function printIssueInvoice(item, allItems) {
   const invoiceItems = item.request_number
     ? allItems.filter(row => row.request_number === item.request_number)
@@ -179,70 +260,26 @@ function printIssueInvoice(item, allItems) {
     return;
   }
 
-  invoice.document.write(`
-    <!doctype html>
-    <html>
-      <head>
-        <title>Issue Invoice - ${escapeHtml(item.request_number || item.id)}</title>
-        <style>
-          body { font-family: Arial, sans-serif; color: #111827; margin: 40px; background: #f8fafc; }
-          .invoice { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 28px; }
-          .header { display: flex; justify-content: space-between; border-bottom: 3px solid #2563eb; padding-bottom: 16px; margin-bottom: 24px; }
-          h1 { margin: 0; font-size: 28px; color: #2563eb; letter-spacing: .02em; }
-          h2 { margin: 0 0 14px; font-size: 16px; color: #111827; }
-          .muted { color: #6b7280; font-size: 12px; }
-          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-          th, td { text-align: left; border: 1px solid #d1d5db; padding: 10px; font-size: 13px; }
-          th { background: #eff6ff; color: #1d4ed8; }
-          .meta { width: 100%; margin-bottom: 18px; }
-          .meta th { width: 160px; }
-          .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; margin-top: 64px; }
-          .line { border-top: 1px solid #111827; padding-top: 8px; font-size: 12px; text-align: center; }
-          @media print { button { display: none; } body { margin: 0; background: #fff; } .invoice { border: none; border-radius: 0; } }
-        </style>
-      </head>
-      <body>
-        <button onclick="window.print()" style="float:right;padding:8px 14px;margin-bottom:16px;">Print / Save PDF</button>
-        <div class="invoice">
-          <div class="header">
-            <div>
-              <h1>HICC-SRC JV</h1>
-              <div class="muted">Material Issue Invoice</div>
-            </div>
-            <div>
-              <div><strong>Date:</strong> ${escapeHtml(item.issue_date)}</div>
-              <div><strong>Req. No:</strong> ${escapeHtml(item.request_number || '-')}</div>
-            </div>
-          </div>
-          <table class="meta">
-            <tr><th>Issued To</th><td>${escapeHtml(item.issued_to)}</td><th>Requisition By</th><td>${escapeHtml(item.approved_by || '-')}</td></tr>
-            <tr><th>Project</th><td>${escapeHtml(item.project || item.project_name || '-')}</td><th>Site Location</th><td>${escapeHtml(item.site_location || item.location || '-')}</td></tr>
-          </table>
-          <h2>Issued Material</h2>
-          <table>
-            <thead>
-              <tr><th>Product</th><th>Category</th><th>Size</th><th>Quantity</th><th>Unit</th></tr>
-            </thead>
-            <tbody>
-              ${invoiceItems.map(row => `
-                <tr>
-                  <td>${escapeHtml(row.product_name)}</td>
-                  <td>${escapeHtml(row.category_name || '-')}</td>
-                  <td>${escapeHtml(row.size || '-')}</td>
-                  <td>${Number(row.quantity).toLocaleString()}</td>
-                  <td>${escapeHtml(row.unit)}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-          <div class="signatures">
-            <div class="line">Received By</div>
-            <div class="line">Authorized Signature</div>
-          </div>
-        </div>
-      </body>
-    </html>
-  `);
+  const bodyRows = invoiceItems.map((row, index) => `
+    <tr>
+      <td>${index + 1}</td>
+      <td>${escapeHtml(row.product_name)}</td>
+      <td>${escapeHtml(row.category_name || '-')}</td>
+      <td>${escapeHtml(row.size || '-')}</td>
+      <td class="qty">${Number(row.quantity).toLocaleString()}</td>
+      <td>${escapeHtml(row.unit)}</td>
+    </tr>
+  `).join('');
+  invoice.document.write(issueDocumentTemplate({
+    requestNumber: item.request_number || item.id,
+    projectName: item.project || item.project_name || '-',
+    date: item.issue_date,
+    issuedTo: item.issued_to,
+    siteLocation: item.site_location || item.location,
+    preparedBy: item.created_by_name || item.issued_to,
+    approvedBy: item.approved_by,
+    bodyRows
+  }));
   invoice.document.close();
 }
 

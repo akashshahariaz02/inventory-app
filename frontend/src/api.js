@@ -79,11 +79,16 @@ export const rejectRequest = (id, reason) => API.patch(`/requests/${id}/reject`,
 // Reports & Dashboard
 export const getDashboard = (params) => API.get('/reports/dashboard', { params });
 export const getReport = (params) => API.get('/reports/summary', { params });
-export const getAuditLog = () => API.get('/reports/audit');
+export const getAuditLog = (params) => API.get('/reports/audit', { params });
 export const getQuotations = (params) => API.get('/reports/quotations', { params });
 export const createQuotation = (data) => API.post('/reports/quotations', data);
 export const updateQuotation = (id, data) => API.put(`/reports/quotations/${id}`, data);
 export const deleteQuotation = (id) => API.delete(`/reports/quotations/${id}`);
 export const selectQuotation = (id) => API.patch(`/reports/quotations/${id}/select`);
+
+// Settings
+export const getBackups = () => API.get('/settings/backups');
+export const createBackup = (data) => API.post('/settings/backups', data);
+export const restoreBackup = (data) => API.post('/settings/restore', data);
 
 export default API;
