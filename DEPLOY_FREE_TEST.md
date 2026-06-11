@@ -50,6 +50,7 @@ MAIL_FROM
 SMTP_HOST
 SMTP_PORT
 SMTP_SECURE
+BREVO_API_KEY
 ```
 
 `DATABASE_URL` and `JWT_SECRET` can be created by Render from `render.yaml`.
@@ -64,6 +65,7 @@ MAIL_FROM=src.inventorysystem@gmail.com
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_SECURE=false
+BREVO_API_KEY=
 ```
 
 ## Step 3: Deploy Frontend On Vercel

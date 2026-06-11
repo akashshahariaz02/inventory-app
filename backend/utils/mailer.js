@@ -1,4 +1,5 @@
 let nodemailer = null;
+const fs = require('fs');
 
 try {
   nodemailer = require('nodemailer');
@@ -8,9 +9,14 @@ try {
 
 function isEmailConfigured() {
   return Boolean(
-    nodemailer &&
-    process.env.SMTP_USER &&
-    process.env.SMTP_PASS &&
+    (
+      process.env.BREVO_API_KEY ||
+      (
+        nodemailer &&
+        process.env.SMTP_USER &&
+        process.env.SMTP_PASS
+      )
+    ) &&
     process.env.MAIL_FROM
   );
 }
@@ -35,11 +41,8 @@ async function sendInviteEmail({ to, name, inviteUrl, expiresAt }) {
     return { sent: false, reason: nodemailer ? 'Email settings are incomplete' : 'nodemailer is not installed' };
   }
 
-  const transporter = nodemailer.createTransport(smtpOptions());
-
   try {
-    await transporter.sendMail({
-      from: process.env.MAIL_FROM,
+    await sendEmail({
       to,
       subject: 'HICC-SRC JV Inventory Account Verification',
       html: `
@@ -70,11 +73,8 @@ async function sendPasswordResetCodeEmail({ to, name, code, expiresAt }) {
     return { sent: false, reason: nodemailer ? 'Email settings are incomplete' : 'nodemailer is not installed' };
   }
 
-  const transporter = nodemailer.createTransport(smtpOptions());
-
   try {
-    await transporter.sendMail({
-      from: process.env.MAIL_FROM,
+    await sendEmail({
       to,
       subject: 'HICC-SRC JV Inventory Password Reset Code',
       html: `
@@ -102,11 +102,8 @@ async function sendBackupEmail({ to, filePath, fileName }) {
     return { sent: false, reason: nodemailer ? 'Email settings are incomplete' : 'nodemailer is not installed' };
   }
 
-  const transporter = nodemailer.createTransport(smtpOptions());
-
   try {
-    await transporter.sendMail({
-      from: process.env.MAIL_FROM,
+    await sendEmail({
       to,
       subject: `HICC-SRC JV Inventory Backup - ${fileName}`,
       html: `
@@ -126,10 +123,74 @@ async function sendBackupEmail({ to, filePath, fileName }) {
   }
 }
 
+async function sendEmail({ to, subject, html, attachments = [] }) {
+  if (process.env.BREVO_API_KEY) {
+    return sendBrevoApiEmail({ to, subject, html, attachments });
+  }
+
+  const transporter = nodemailer.createTransport(smtpOptions());
+  return transporter.sendMail({
+    from: process.env.MAIL_FROM,
+    to,
+    subject,
+    html,
+    attachments,
+  });
+}
+
+async function sendBrevoApiEmail({ to, subject, html, attachments = [] }) {
+  const payload = {
+    sender: parseSender(process.env.MAIL_FROM),
+    to: [{ email: to }],
+    subject,
+    htmlContent: html,
+  };
+
+  if (attachments.length) {
+    payload.attachment = attachments.map(attachment => ({
+      name: attachment.filename,
+      content: fs.readFileSync(attachment.path).toString('base64'),
+    }));
+  }
+
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      'api-key': process.env.BREVO_API_KEY,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let errorText = await response.text();
+    try {
+      const parsed = JSON.parse(errorText);
+      errorText = parsed.message || parsed.code || errorText;
+    } catch {
+      // Keep raw response text.
+    }
+    throw new Error(`Brevo API error (${response.status}): ${errorText}`);
+  }
+}
+
+function parseSender(value) {
+  const text = String(value || '').trim();
+  const match = text.match(/^(.*?)<(.+?)>$/);
+  if (match) {
+    return { name: match[1].trim().replace(/^"|"$/g, ''), email: match[2].trim() };
+  }
+  return { email: text };
+}
+
 function friendlyMailError(err) {
   const message = err?.message || '';
   if (message.includes('535') || message.toLowerCase().includes('badcredentials') || message.toLowerCase().includes('username and password not accepted')) {
     return 'Gmail rejected the SMTP login. Use a Google App Password in SMTP_PASS, not the normal Gmail password.';
+  }
+  if (message.toLowerCase().includes('unauthorized') || message.includes('401')) {
+    return 'Brevo rejected the API key. Check BREVO_API_KEY in Render.';
   }
   if (message.toLowerCase().includes('less secure')) {
     return 'Gmail blocked SMTP access. Enable 2-Step Verification and use a Google App Password.';
