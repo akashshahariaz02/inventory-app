@@ -47,6 +47,9 @@ FRONTEND_URL
 SMTP_USER
 SMTP_PASS
 MAIL_FROM
+SMTP_HOST
+SMTP_PORT
+SMTP_SECURE
 ```
 
 `DATABASE_URL` and `JWT_SECRET` can be created by Render from `render.yaml`.
@@ -58,6 +61,9 @@ FRONTEND_URL=https://YOUR-VERCEL-FRONTEND.vercel.app
 SMTP_USER=src.inventorysystem@gmail.com
 SMTP_PASS=YOUR_GMAIL_APP_PASSWORD
 MAIL_FROM=src.inventorysystem@gmail.com
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
 ```
 
 ## Step 3: Deploy Frontend On Vercel
@@ -115,4 +121,3 @@ Then redeploy/restart backend.
 - Google Drive local folder backup will not work on Render because Render cannot access your local computer drive.
 - For real production, use paid hosting, monitored backups, HTTPS, and stronger infrastructure.
 - Gmail SMTP requires Gmail App Password, not normal Gmail password.
-

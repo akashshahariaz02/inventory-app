@@ -9,12 +9,22 @@ try {
 function isEmailConfigured() {
   return Boolean(
     nodemailer &&
-    process.env.SMTP_HOST &&
-    process.env.SMTP_PORT &&
     process.env.SMTP_USER &&
     process.env.SMTP_PASS &&
     process.env.MAIL_FROM
   );
+}
+
+function smtpOptions() {
+  return {
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: String(process.env.SMTP_SECURE || '').toLowerCase() === 'true',
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  };
 }
 
 async function sendInviteEmail({ to, name, inviteUrl, expiresAt }) {
@@ -22,15 +32,7 @@ async function sendInviteEmail({ to, name, inviteUrl, expiresAt }) {
     return { sent: false, reason: nodemailer ? 'Email settings are incomplete' : 'nodemailer is not installed' };
   }
 
-  const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT),
-    secure: String(process.env.SMTP_SECURE || '').toLowerCase() === 'true',
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
+  const transporter = nodemailer.createTransport(smtpOptions());
 
   try {
     await transporter.sendMail({
@@ -65,15 +67,7 @@ async function sendPasswordResetCodeEmail({ to, name, code, expiresAt }) {
     return { sent: false, reason: nodemailer ? 'Email settings are incomplete' : 'nodemailer is not installed' };
   }
 
-  const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT),
-    secure: String(process.env.SMTP_SECURE || '').toLowerCase() === 'true',
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
+  const transporter = nodemailer.createTransport(smtpOptions());
 
   try {
     await transporter.sendMail({
@@ -105,15 +99,7 @@ async function sendBackupEmail({ to, filePath, fileName }) {
     return { sent: false, reason: nodemailer ? 'Email settings are incomplete' : 'nodemailer is not installed' };
   }
 
-  const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT),
-    secure: String(process.env.SMTP_SECURE || '').toLowerCase() === 'true',
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
+  const transporter = nodemailer.createTransport(smtpOptions());
 
   try {
     await transporter.sendMail({
