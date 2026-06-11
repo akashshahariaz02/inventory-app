@@ -1,23 +1,23 @@
 # Free Test Deployment Guide
 
-This setup is for client testing only. For real production, use paid hosting, a paid database, HTTPS, and monitored backups.
+This setup is for client testing only. You do not need to buy a domain. Vercel and Render will give free testing links.
 
-## Free Testing Option
-
-- Frontend: Vercel or Netlify free static hosting.
-- Backend: Render free web service.
-- Database: Render PostgreSQL or another hosted PostgreSQL service.
-
-You do not need to buy a domain for testing. Free platforms give you temporary URLs like:
+## Deployment Flow
 
 ```text
-https://hicc-src-inventory.vercel.app
-https://hicc-src-inventory-backend.onrender.com
+GitHub repository
+  -> Render backend + PostgreSQL database
+  -> Vercel frontend
+  -> Client opens Vercel link
 ```
 
-## Step 1: Push Project To GitHub
+## Step 1: Push Latest Code To GitHub
 
-Create a GitHub repository and push this project.
+This project is already connected to:
+
+```text
+https://github.com/akashshahariaz02/inventory-app.git
+```
 
 Do not upload `backend/.env`. It is ignored by `.gitignore`.
 
@@ -26,8 +26,11 @@ Do not upload `backend/.env`. It is ignored by `.gitignore`.
 1. Open Render.
 2. Connect your GitHub account.
 3. Create a new Blueprint from this repository.
-4. Render can read `render.yaml`.
-5. After backend deploys, copy the backend URL.
+4. Render should read `render.yaml`.
+5. Render will create:
+   - backend web service
+   - PostgreSQL database
+6. After deploy, copy the backend URL.
 
 Example:
 
@@ -35,7 +38,7 @@ Example:
 https://hicc-src-inventory-backend.onrender.com
 ```
 
-Backend environment variables needed:
+Backend environment variables:
 
 ```text
 DATABASE_URL
@@ -48,12 +51,19 @@ MAIL_FROM
 
 `DATABASE_URL` and `JWT_SECRET` can be created by Render from `render.yaml`.
 
-Set `FRONTEND_URL` after frontend is deployed.
+Set these manually in Render:
+
+```text
+FRONTEND_URL=https://YOUR-VERCEL-FRONTEND.vercel.app
+SMTP_USER=src.inventorysystem@gmail.com
+SMTP_PASS=YOUR_GMAIL_APP_PASSWORD
+MAIL_FROM=src.inventorysystem@gmail.com
+```
 
 ## Step 3: Deploy Frontend On Vercel
 
 1. Open Vercel.
-2. Import the same GitHub repository.
+2. Import this GitHub repository.
 3. Set project root/directory:
 
 ```text
@@ -100,8 +110,9 @@ Then redeploy/restart backend.
 
 ## Important Notes
 
-- Free backend services may sleep when inactive, so first load can be slow.
+- Free Render backend may sleep when inactive, so first login can take 30-60 seconds.
 - Free database limits are small.
-- Google Drive backup folder will not work on Render because Render cannot access your local `G:\My Drive`.
-- For real production backup, use cloud database backups or external object storage.
-- Email requires Gmail App Password, not normal Gmail password.
+- Google Drive local folder backup will not work on Render because Render cannot access your local computer drive.
+- For real production, use paid hosting, monitored backups, HTTPS, and stronger infrastructure.
+- Gmail SMTP requires Gmail App Password, not normal Gmail password.
+

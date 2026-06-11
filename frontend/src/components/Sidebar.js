@@ -40,7 +40,7 @@ export default function Sidebar({ pendingCount, isOpen, onClose }) {
   return (
     <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
       <div className="sidebar-logo">
-        <h1>HICC-SRC JV</h1>
+        <h1 className="brand-name"><span className="brand-hicc">HICC</span>-<span className="brand-src">SRC</span>&nbsp;<span className="brand-jv">JV</span></h1>
         <span>Inventory Management</span>
       </div>
 

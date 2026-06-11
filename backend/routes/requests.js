@@ -65,6 +65,7 @@ function groupRequests(rows) {
       id: row.id,
       product_id: row.product_id,
       product_name: row.product_name,
+      category_name: row.category_name,
       size: row.size,
       unit: row.unit,
       quantity: row.quantity
@@ -79,9 +80,10 @@ async function getRequestGroupById(id) {
   if (!seed) return null;
 
   const rows = await db.all(`
-    SELECT r.*, p.name as product_name, p.unit, p.size, u.name as requester_display_name
+    SELECT r.*, p.name as product_name, p.unit, p.size, c.name as category_name, u.name as requester_display_name
     FROM requests r
     JOIN products p ON r.product_id = p.id
+    LEFT JOIN categories c ON p.category_id = c.id
     LEFT JOIN users u ON r.requested_by = u.id
     WHERE r.request_number = ?
     ORDER BY r.created_at, p.name
@@ -98,9 +100,10 @@ function canModifyRequestGroup(group, user) {
 router.get('/', authenticateToken, requireProjectAccess(req => req.query.project_id), async (req, res) => {
   const { project_id, status, search } = req.query;
   let query = `
-    SELECT r.*, p.name as product_name, p.unit, p.size, u.name as requester_display_name
+    SELECT r.*, p.name as product_name, p.unit, p.size, c.name as category_name, u.name as requester_display_name
     FROM requests r
     JOIN products p ON r.product_id = p.id
+    LEFT JOIN categories c ON p.category_id = c.id
     LEFT JOIN users u ON r.requested_by = u.id
     WHERE 1=1
   `;

@@ -36,7 +36,7 @@ export default function ResetPassword() {
     <div className="login-page">
       <div className="login-card">
         <div className="login-logo">
-          <h1>HICC-SRC JV</h1>
+          <h1 className="brand-name"><span className="brand-hicc">HICC</span>-<span className="brand-src">SRC</span> <span className="brand-jv">JV</span></h1>
           <p>Reset Password</p>
         </div>
         <form onSubmit={handleSubmit}>
