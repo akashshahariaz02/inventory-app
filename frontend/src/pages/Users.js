@@ -45,7 +45,7 @@ export default function Users() {
       setShowModal(false);
       setForm({ name: '', email: '', role: 'viewer', project_ids: [] });
       load();
-    } catch (err) { toast.error(err.response?.data?.error || 'Failed'); }
+    } catch (err) { toast.error(err.response?.data?.error || err.message || 'Failed to create user'); }
     finally { setSaving(false); }
   };
 

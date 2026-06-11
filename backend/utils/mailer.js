@@ -20,6 +20,9 @@ function smtpOptions() {
     host: process.env.SMTP_HOST || 'smtp.gmail.com',
     port: Number(process.env.SMTP_PORT || 587),
     secure: String(process.env.SMTP_SECURE || '').toLowerCase() === 'true',
+    connectionTimeout: Number(process.env.SMTP_TIMEOUT_MS || 8000),
+    greetingTimeout: Number(process.env.SMTP_TIMEOUT_MS || 8000),
+    socketTimeout: Number(process.env.SMTP_TIMEOUT_MS || 8000),
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
@@ -130,6 +133,12 @@ function friendlyMailError(err) {
   }
   if (message.toLowerCase().includes('less secure')) {
     return 'Gmail blocked SMTP access. Enable 2-Step Verification and use a Google App Password.';
+  }
+  if (message.toLowerCase().includes('timeout') || message.toLowerCase().includes('timed out') || message.includes('ETIMEDOUT')) {
+    return 'Email server timed out. On free hosting, SMTP may be blocked or slow. Share the invite link manually or use a transactional email service.';
+  }
+  if (message.includes('ECONNREFUSED') || message.includes('ECONNRESET') || message.includes('ENETUNREACH')) {
+    return 'Email server connection failed. Check SMTP settings or use a transactional email service for hosted deployment.';
   }
   return message || 'Email delivery failed';
 }
