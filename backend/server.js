@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const { db, initializeDatabase } = require('./database');
 
 const app = express();
@@ -40,8 +41,19 @@ app.use('/api/*', (req, res) => res.status(404).json({ error: 'Route not found' 
 
 // Serve frontend in production
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../frontend/build')));
-  app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../frontend/build/index.html')));
+  const frontendBuildPath = path.join(__dirname, '../frontend/build');
+  const frontendIndexPath = path.join(frontendBuildPath, 'index.html');
+
+  if (fs.existsSync(frontendIndexPath)) {
+    app.use(express.static(frontendBuildPath));
+    app.get('*', (req, res) => res.sendFile(frontendIndexPath));
+  } else {
+    app.get('/', (req, res) => res.json({
+      status: 'ok',
+      service: 'HICC-SRC JV Inventory API',
+      api: '/api'
+    }));
+  }
 }
 
 // Global error handler
