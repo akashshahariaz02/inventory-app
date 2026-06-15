@@ -32,6 +32,19 @@ async function recalculateProductStock(db, productId) {
   return totals;
 }
 
+async function getAvailableStockForUpdate(db, productId) {
+  const product = await db.get('SELECT id, project_id, name, unit FROM products WHERE id = ? FOR UPDATE', productId);
+  if (!product) return null;
+
+  const totals = await getProductStockTotals(db, productId);
+  return {
+    ...product,
+    available: Number(totals?.balance || 0),
+    totalIn: Number(totals?.totalIn || 0),
+    totalOut: Number(totals?.totalOut || 0)
+  };
+}
+
 async function recalculateAllProductStock(db) {
   const products = await db.all('SELECT id FROM products');
   const changed = [];
@@ -52,4 +65,4 @@ async function recalculateAllProductStock(db) {
   return changed;
 }
 
-module.exports = { getProductStockTotals, recalculateProductStock, recalculateAllProductStock };
+module.exports = { getProductStockTotals, getAvailableStockForUpdate, recalculateProductStock, recalculateAllProductStock };

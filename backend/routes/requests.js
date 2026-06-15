@@ -3,7 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 const { db } = require('../database');
 const { authenticateToken, requireRole, requireProjectAccess, hasProjectAccess } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
-const { recalculateProductStock } = require('../utils/stock');
+const { getAvailableStockForUpdate, recalculateProductStock } = require('../utils/stock');
 
 const router = express.Router();
 
@@ -231,26 +231,48 @@ router.patch('/:id/approve', authenticateToken, requireRole('admin', 'store_mana
   }
   if (group.status !== 'pending') return res.status(400).json({ error: 'Request is not pending' });
 
-  for (const item of group.items) {
-    const product = await db.get('SELECT * FROM products WHERE id = ?', item.product_id);
-    if (product.current_stock < item.quantity) {
-      return res.status(400).json({ error: `Insufficient stock for ${product.name}. Available: ${product.current_stock} ${product.unit}` });
-    }
+  try {
+    await db.transaction(async tx => {
+      const requestedByProduct = new Map();
+      for (const item of group.items) {
+        requestedByProduct.set(
+          item.product_id,
+          Number(requestedByProduct.get(item.product_id) || 0) + Number(item.quantity || 0)
+        );
+      }
+
+      for (const [productId, requestedQty] of requestedByProduct.entries()) {
+        const stock = await getAvailableStockForUpdate(tx, productId);
+        if (!stock || stock.project_id !== group.project_id) {
+          const err = new Error('Product not found');
+          err.statusCode = 404;
+          throw err;
+        }
+        if (stock.available < requestedQty) {
+          const err = new Error(`Insufficient stock for ${stock.name}. Available: ${stock.available} ${stock.unit}, Requested: ${requestedQty} ${stock.unit}`);
+          err.statusCode = 400;
+          throw err;
+        }
+      }
+
+      await tx.run(`UPDATE requests SET status='approved', approved_by=?, approved_at=CURRENT_TIMESTAMP WHERE request_number=?`, req.user.name, group.request_number);
+
+      for (const item of group.items) {
+        await tx.run(`
+          INSERT INTO issues (id, project_id, product_id, issue_date, issued_to, project, site_location, location, request_number, quantity, purpose, approved_by, created_by)
+          VALUES (?, ?, ?, CURRENT_DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, uuidv4(), group.project_id, item.product_id, group.requester_name, null, group.location, group.location, group.request_number, item.quantity, group.purpose, req.user.name, req.user.id);
+      }
+
+      for (const productId of requestedByProduct.keys()) {
+        await recalculateProductStock(tx, productId);
+      }
+
+      await logAudit(tx, req.user.id, 'UPDATE', 'requests', group.request_number, group, { status: 'approved' }, 'Request approved and issue created');
+    });
+  } catch (err) {
+    return res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : 'Failed to approve request' });
   }
-
-  await db.transaction(async tx => {
-    await tx.run(`UPDATE requests SET status='approved', approved_by=?, approved_at=CURRENT_TIMESTAMP WHERE request_number=?`, req.user.name, group.request_number);
-
-    for (const item of group.items) {
-      await tx.run(`
-        INSERT INTO issues (id, project_id, product_id, issue_date, issued_to, project, site_location, location, request_number, quantity, purpose, approved_by, created_by)
-        VALUES (?, ?, ?, CURRENT_DATE, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, uuidv4(), group.project_id, item.product_id, group.requester_name, null, group.location, group.location, group.request_number, item.quantity, group.purpose, req.user.name, req.user.id);
-      await recalculateProductStock(tx, item.product_id);
-    }
-
-    await logAudit(tx, req.user.id, 'UPDATE', 'requests', group.request_number, group, { status: 'approved' }, 'Request approved and issue created');
-  });
 
   res.json({ message: 'Request approved and issue created automatically' });
 });

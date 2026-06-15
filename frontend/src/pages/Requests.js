@@ -166,6 +166,17 @@ function RequestModal({ projectId, products, request, onSave, onClose }) {
       toast.error('Add at least one product');
       return;
     }
+    const requestedByProduct = new Map();
+    for (const item of items) {
+      requestedByProduct.set(item.product_id, (requestedByProduct.get(item.product_id) || 0) + Number(item.quantity || 0));
+    }
+    for (const [productId, requestedQty] of requestedByProduct.entries()) {
+      const product = productById(productId);
+      if (product && requestedQty > Number(product.current_stock || 0)) {
+        toast.error(`Insufficient stock for ${product.name}. Available: ${product.current_stock} ${product.unit}, requested: ${requestedQty} ${product.unit}`);
+        return;
+      }
+    }
 
     setSaving(true);
     try {
@@ -221,7 +232,16 @@ function RequestModal({ projectId, products, request, onSave, onClose }) {
                         </div>
                         <div className="form-group" style={{marginBottom:0}}>
                           <label className="form-label">Quantity</label>
-                          <input className="form-control" type="number" min="0.01" step="0.01" value={item.quantity} onChange={e => setItem(index, 'quantity', e.target.value)} required />
+                          <input
+                            className="form-control"
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            max={selectedProduct?.current_stock || undefined}
+                            value={item.quantity}
+                            onChange={e => setItem(index, 'quantity', e.target.value)}
+                            required
+                          />
                         </div>
                         <div className="form-group" style={{marginBottom:0}}>
                           <label className="form-label">Unit</label>

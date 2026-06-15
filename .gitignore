@@ -7,4 +7,5 @@ backend/uploads/
 frontend/build/
 .env
 *.log
+backups/
 .DS_Store

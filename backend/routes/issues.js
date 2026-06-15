@@ -3,7 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 const { db } = require('../database');
 const { authenticateToken, requireRole, requireProjectAccess, hasProjectAccess } = require('../middleware/auth');
 const { logAudit } = require('../utils/audit');
-const { recalculateProductStock } = require('../utils/stock');
+const { getAvailableStockForUpdate, recalculateProductStock } = require('../utils/stock');
 
 const router = express.Router();
 
@@ -98,15 +98,31 @@ router.post('/', authenticateToken, requireRole('admin', 'store_manager'), requi
   const finalSiteLocation = site_location ?? location;
   const finalRequestNumber = request_number?.trim() || await generateRequestNumber(project_id);
   const id = uuidv4();
-  await db.transaction(async tx => {
-    await tx.run(`
-      INSERT INTO issues (id, project_id, product_id, issue_date, issued_to, project, site_location, location, request_number, quantity, purpose, approved_by, remarks, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, id, project_id, product_id, issue_date, issued_to, project, finalSiteLocation, finalSiteLocation, finalRequestNumber, qty, purpose, approved_by, remarks, req.user.id);
+  try {
+    await db.transaction(async tx => {
+      const stock = await getAvailableStockForUpdate(tx, product_id);
+      if (!stock || stock.project_id !== project_id) {
+        const err = new Error('Product not found');
+        err.statusCode = 404;
+        throw err;
+      }
+      if (stock.available < qty) {
+        const err = new Error(`Insufficient stock. Available: ${stock.available} ${stock.unit}, Requested: ${qty} ${stock.unit}`);
+        err.statusCode = 400;
+        throw err;
+      }
 
-    await recalculateProductStock(tx, product_id);
-    await logAudit(tx, req.user.id, 'CREATE', 'issues', id, null, { ...req.body, request_number: finalRequestNumber, quantity: qty, site_location: finalSiteLocation }, purpose || remarks || 'Material issued');
-  });
+      await tx.run(`
+        INSERT INTO issues (id, project_id, product_id, issue_date, issued_to, project, site_location, location, request_number, quantity, purpose, approved_by, remarks, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, id, project_id, product_id, issue_date, issued_to, project, finalSiteLocation, finalSiteLocation, finalRequestNumber, qty, purpose, approved_by, remarks, req.user.id);
+
+      await recalculateProductStock(tx, product_id);
+      await logAudit(tx, req.user.id, 'CREATE', 'issues', id, null, { ...req.body, request_number: finalRequestNumber, quantity: qty, site_location: finalSiteLocation }, purpose || remarks || 'Material issued');
+    });
+  } catch (err) {
+    return res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : 'Failed to record issue' });
+  }
 
   const updatedStock = await db.get('SELECT current_stock FROM products WHERE id = ?', product_id);
   res.status(201).json({ message: 'Issue recorded, stock updated', id, request_number: finalRequestNumber, new_stock: updatedStock.current_stock });
@@ -125,21 +141,29 @@ router.put('/:id', authenticateToken, requireRole('admin'), async (req, res) => 
   if (!Number.isFinite(newQty) || newQty <= 0) return res.status(400).json({ error: 'Quantity must be greater than 0' });
   const diff = newQty - issue.quantity;
 
-  const product = await db.get('SELECT current_stock FROM products WHERE id = ?', issue.product_id);
-  if (diff > 0 && product.current_stock < diff) {
-    return res.status(400).json({ error: `Insufficient stock for quantity increase. Available: ${product.current_stock}` });
-  }
-
   const finalSiteLocation = site_location ?? location ?? issue.site_location ?? issue.location;
-  await db.transaction(async tx => {
-    await tx.run(`UPDATE issues SET issued_to=?, project=?, site_location=?, location=?, request_number=?, quantity=?, purpose=?, approved_by=?, remarks=? WHERE id=?`,
-      issued_to || issue.issued_to, project ?? issue.project, finalSiteLocation, finalSiteLocation, request_number ?? issue.request_number,
-        newQty, purpose ?? issue.purpose, approved_by ?? issue.approved_by, remarks ?? issue.remarks, req.params.id);
-    if (diff !== 0) {
-      await recalculateProductStock(tx, issue.product_id);
-    }
-    await logAudit(tx, req.user.id, 'UPDATE', 'issues', req.params.id, issue, req.body, purpose || remarks || 'Issue updated');
-  });
+  try {
+    await db.transaction(async tx => {
+      if (diff > 0) {
+        const stock = await getAvailableStockForUpdate(tx, issue.product_id);
+        if (!stock || stock.available < diff) {
+          const err = new Error(`Insufficient stock for quantity increase. Available: ${stock?.available ?? 0} ${stock?.unit || ''}`.trim());
+          err.statusCode = 400;
+          throw err;
+        }
+      }
+
+      await tx.run(`UPDATE issues SET issued_to=?, project=?, site_location=?, location=?, request_number=?, quantity=?, purpose=?, approved_by=?, remarks=? WHERE id=?`,
+        issued_to || issue.issued_to, project ?? issue.project, finalSiteLocation, finalSiteLocation, request_number ?? issue.request_number,
+          newQty, purpose ?? issue.purpose, approved_by ?? issue.approved_by, remarks ?? issue.remarks, req.params.id);
+      if (diff !== 0) {
+        await recalculateProductStock(tx, issue.product_id);
+      }
+      await logAudit(tx, req.user.id, 'UPDATE', 'issues', req.params.id, issue, req.body, purpose || remarks || 'Issue updated');
+    });
+  } catch (err) {
+    return res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : 'Failed to update issue' });
+  }
 
   res.json({ message: 'Issue updated' });
 });
