@@ -6,9 +6,11 @@ import { useParams } from 'react-router-dom';
 import { parseCsv, readTextFile } from '../utils/csv';
 
 const UNITS = ['Feet', 'Meter', 'Piece', 'Kg', 'Liter', 'Box', 'Roll'];
+const ADD_CATEGORY_VALUE = '__add_category__';
+const ADD_UNIT_VALUE = '__add_unit__';
 const today = () => new Date().toISOString().split('T')[0];
 
-function ProductModal({ projectId, product, categories, onSave, onClose }) {
+function LegacyProductModal({ projectId, product, categories, onSave, onClose }) {
   const [form, setForm] = useState(product || {
     name: '',
     category_id: '',
@@ -136,6 +138,181 @@ function ProductModal({ projectId, product, categories, onSave, onClose }) {
   );
 }
 
+function ProductModal({ projectId, product, categories, onSave, onClose }) {
+  const [form, setForm] = useState(product || {
+    name: '',
+    category_id: '',
+    size: '',
+    unit: 'Piece',
+    opening_stock: 0,
+    supplier_name: '',
+    purchase_date: today(),
+    challan_number: '',
+    rate: '',
+    minimum_stock: 0,
+    description: ''
+  });
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [addingUnit, setAddingUnit] = useState(() => Boolean(form.unit && !UNITS.includes(form.unit)));
+  const [saving, setSaving] = useState(false);
+  const openingQty = parseFloat(form.opening_stock) || 0;
+  const openingRate = parseFloat(form.rate) || 0;
+  const openingTotal = openingQty * openingRate;
+
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+  const handleCategoryChange = (value) => {
+    if (value === ADD_CATEGORY_VALUE) {
+      setAddingCategory(true);
+      set('category_id', '');
+      return;
+    }
+    setAddingCategory(false);
+    setNewCategoryName('');
+    set('category_id', value);
+  };
+  const handleUnitChange = (value) => {
+    if (value === ADD_UNIT_VALUE) {
+      setAddingUnit(true);
+      set('unit', '');
+      return;
+    }
+    setAddingUnit(false);
+    set('unit', value);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.unit?.trim()) return toast.error('Unit is required');
+    if (addingCategory && !newCategoryName.trim()) return toast.error('New category name is required');
+    if (!product && openingQty > 0 && (!form.supplier_name?.trim() || !form.purchase_date || !form.challan_number?.trim() || form.rate === '' || form.rate === null)) {
+      toast.error('Supplier, purchase date, challan / invoice number, and rate are required when quantity is greater than 0');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const payload = { ...form };
+      if (addingCategory) {
+        const res = await createCategory({ name: newCategoryName.trim() });
+        payload.category_id = res.data.id;
+      }
+      if (product) await updateProduct(product.id, payload);
+      else await createProduct({ ...payload, project_id: projectId });
+      toast.success(product ? 'Product updated!' : 'Product created!');
+      onSave();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <div className="modal-header">
+          <h3 className="modal-title">{product ? 'Edit Product' : 'Add New Product'}</h3>
+          <button className="btn-close" onClick={onClose}>x</button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div className="modal-body">
+            <div className="form-group">
+              <label className="form-label">Product Name *</label>
+              <input className="form-control" value={form.name} onChange={e => set('name', e.target.value)} required placeholder="e.g. GI Pipe" />
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Category</label>
+                <select className="form-control" value={addingCategory ? ADD_CATEGORY_VALUE : (form.category_id || '')} onChange={e => handleCategoryChange(e.target.value)}>
+                  <option value="">Select category</option>
+                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  <option value={ADD_CATEGORY_VALUE}>+ Add new category</option>
+                </select>
+                {addingCategory && (
+                  <input className="form-control" style={{ marginTop: '8px' }} value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} required placeholder="New category name" />
+                )}
+              </div>
+              <div className="form-group">
+                <label className="form-label">Size / Diameter</label>
+                <input className="form-control" value={form.size} onChange={e => set('size', e.target.value)} placeholder='e.g. 2", 4mm' />
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Unit *</label>
+                <select className="form-control" value={addingUnit ? ADD_UNIT_VALUE : form.unit} onChange={e => handleUnitChange(e.target.value)}>
+                  {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                  <option value={ADD_UNIT_VALUE}>+ Add new unit</option>
+                </select>
+                {addingUnit && (
+                  <input className="form-control" style={{ marginTop: '8px' }} value={form.unit} onChange={e => set('unit', e.target.value)} required placeholder="New unit name" />
+                )}
+              </div>
+              {!product ? (
+                <div className="form-group">
+                  <label className="form-label">Quantity</label>
+                  <input className="form-control" type="number" min="0" step="0.01" value={form.opening_stock} onChange={e => set('opening_stock', e.target.value)} placeholder="0" />
+                </div>
+              ) : (
+                <div className="form-group">
+                  <label className="form-label">Minimum Stock Alert</label>
+                  <input className="form-control" type="number" min="0" value={form.minimum_stock} onChange={e => set('minimum_stock', e.target.value)} />
+                </div>
+              )}
+            </div>
+
+            {!product && (
+              <>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Rate / Unit Price</label>
+                    <input className="form-control" type="number" min="0" step="0.01" value={form.rate} onChange={e => set('rate', e.target.value)} required={openingQty > 0} placeholder="0.00" />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Minimum Stock Alert</label>
+                    <input className="form-control" type="number" min="0" value={form.minimum_stock} onChange={e => set('minimum_stock', e.target.value)} />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Supplier Name</label>
+                    <input className="form-control" value={form.supplier_name} onChange={e => set('supplier_name', e.target.value)} required={openingQty > 0} placeholder="Supplier / Vendor" />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Purchase Date</label>
+                    <input className="form-control" type="date" value={form.purchase_date} onChange={e => set('purchase_date', e.target.value)} required={openingQty > 0} />
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Challan / Invoice Number</label>
+                  <input className="form-control" value={form.challan_number} onChange={e => set('challan_number', e.target.value)} required={openingQty > 0} placeholder="Enter challan / invoice number" />
+                </div>
+                {openingQty > 0 && (
+                  <div className="alert alert-success" style={{ marginBottom: '16px' }}>
+                    <strong>Total Amount: ৳ {openingTotal.toLocaleString('en-BD', { minimumFractionDigits: 2 })}</strong>
+                  </div>
+                )}
+              </>
+            )}
+
+            <div className="form-group">
+              <label className="form-label">Description</label>
+              <textarea className="form-control" value={form.description} onChange={e => set('description', e.target.value)} placeholder="Optional notes" />
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save Product'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function Inventory() {
   const { projectId } = useParams();
   const [products, setProducts] = useState([]);
@@ -199,6 +376,7 @@ export default function Inventory() {
           opening_stock: row.opening_stock || row.stock || 0,
           supplier_name: row.supplier_name || row.supplier || '',
           purchase_date: row.purchase_date || row.date || today(),
+          challan_number: row.challan_number || row.invoice_number || row.challan || '',
           rate: row.rate || row.unit_price || '',
           minimum_stock: row.minimum_stock || row.min_stock || 0,
           description: row.description || row.remarks || ''

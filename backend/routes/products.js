@@ -73,7 +73,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
 // Create product
 router.post('/', authenticateToken, requireRole('admin', 'store_manager'), requireProjectAccess(req => req.body.project_id), async (req, res) => {
-  const { project_id, name, category_id, size, unit, opening_stock, minimum_stock, description, supplier_name, purchase_date, rate, remarks } = req.body;
+  const { project_id, name, category_id, size, unit, opening_stock, minimum_stock, description, supplier_name, purchase_date, challan_number, rate, remarks } = req.body;
   if (!name) return res.status(400).json({ error: 'Product name required' });
   if (!project_id) return res.status(400).json({ error: 'project_id required' });
   const project = await db.get('SELECT id FROM projects WHERE id = ? AND is_active = 1', project_id);
@@ -86,6 +86,7 @@ router.post('/', authenticateToken, requireRole('admin', 'store_manager'), requi
   if (unitRate < 0) return res.status(400).json({ error: 'Rate cannot be negative' });
   if (stock > 0 && !supplier_name?.trim()) return res.status(400).json({ error: 'Supplier name is required when opening stock is greater than 0' });
   if (stock > 0 && !purchase_date) return res.status(400).json({ error: 'Purchase date is required when opening stock is greater than 0' });
+  if (stock > 0 && !challan_number?.trim()) return res.status(400).json({ error: 'Challan / invoice number is required when opening stock is greater than 0' });
   if (stock > 0 && (rate === undefined || rate === null || rate === '')) return res.status(400).json({ error: 'Rate is required when opening stock is greater than 0' });
 
   await db.transaction(async tx => {
@@ -95,11 +96,10 @@ router.post('/', authenticateToken, requireRole('admin', 'store_manager'), requi
     `, id, project_id, name, category_id || null, size, unit || 'Piece', stock, stock, parseFloat(minimum_stock) || 0, description);
 
     if (stock > 0) {
-      const challanNumber = await generateChallanNumber(project_id, tx);
       await tx.run(`
         INSERT INTO procurements (id, project_id, product_id, supplier_name, purchase_date, challan_number, quantity, rate, total_amount, remarks, created_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, uuidv4(), project_id, id, supplier_name.trim(), purchase_date, challanNumber, stock, unitRate, stock * unitRate, remarks || description || 'Opening stock from new product', req.user.id);
+      `, uuidv4(), project_id, id, supplier_name.trim(), purchase_date, challan_number.trim(), stock, unitRate, stock * unitRate, remarks || description || 'Opening stock from new product', req.user.id);
       await recalculateProductStock(tx, id);
     }
 

@@ -125,6 +125,7 @@ async function testProductProcurementIssue() {
       opening_stock: 100,
       supplier_name: 'Smoke Supplier',
       purchase_date: '2026-06-09',
+      challan_number: `${ids.prefix}-OPENING-001`,
       rate: 50,
       minimum_stock: 5,
       description: 'Smoke test product'
@@ -138,7 +139,7 @@ async function testProductProcurementIssue() {
   const opening = procurements.data.find(row => row.product_id === productId);
   assert.ok(opening, 'opening procurement should be created');
   assert.strictEqual(opening.supplier_name, 'Smoke Supplier', 'opening procurement should use actual supplier');
-  assert.ok(String(opening.challan_number).startsWith('IN-'), 'opening procurement should use IN auto challan');
+  assert.strictEqual(opening.challan_number, `${ids.prefix}-OPENING-001`, 'opening procurement should use manual challan');
 
   const issue = await request('/issues', {
     method: 'POST',

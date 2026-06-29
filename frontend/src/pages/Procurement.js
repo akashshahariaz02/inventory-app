@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import toast from 'react-hot-toast';
-import { getProcurements, createProcurement, deleteProcurement, getProducts, getCategories, createProduct } from '../api';
+import { getProcurements, createProcurement, deleteProcurement, getProducts, getCategories, createProduct, createCategory } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { format } from 'date-fns';
 import { useParams } from 'react-router-dom';
@@ -8,10 +8,15 @@ import { parseCsv, readTextFile } from '../utils/csv';
 
 const UNIT_OPTIONS = ['Nos', 'Cu.m', 'Rolls', 'Feet', 'Meter', 'Piece', 'Kg', 'Liter', 'Box', 'Roll'];
 const NEW_PRODUCT_VALUE = '__new_product__';
+const ADD_CATEGORY_VALUE = '__add_category__';
+const ADD_UNIT_VALUE = '__add_unit__';
 
 function ProcurementModal({ projectId, products, categories, onSave, onClose }) {
-  const [form, setForm] = useState({ product_id: '', supplier_name: '', purchase_date: format(new Date(), 'yyyy-MM-dd'), quantity: '', rate: '', remarks: '' });
-  const [newProduct, setNewProduct] = useState({ name: '', category_id: '', size: '', unit: '', minimum_stock: 0, description: '' });
+  const [form, setForm] = useState({ product_id: '', supplier_name: '', purchase_date: format(new Date(), 'yyyy-MM-dd'), challan_number: '', quantity: '', rate: '', remarks: '' });
+  const [newProduct, setNewProduct] = useState({ name: '', category_id: '', size: '', unit: 'Piece', minimum_stock: 0, description: '' });
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [addingUnit, setAddingUnit] = useState(false);
   const [productSearch, setProductSearch] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -23,8 +28,8 @@ function ProcurementModal({ projectId, products, categories, onSave, onClose }) 
     setSaving(true);
     try {
       let productId = form.product_id;
-      if (!productId || !form.purchase_date || !form.quantity || !form.rate) {
-        toast.error('Please select a product, quantity, rate, and purchase date before saving.');
+      if (!productId || !form.purchase_date || !form.challan_number?.trim() || !form.quantity || !form.rate) {
+        toast.error('Please select a product and enter quantity, rate, purchase date, and challan / invoice number before saving.');
         setSaving(false);
         return;
       }
@@ -34,7 +39,22 @@ function ProcurementModal({ projectId, products, categories, onSave, onClose }) 
           setSaving(false);
           return;
         }
-        const created = await createProduct({ ...newProduct, project_id: projectId, category_id: newProduct.category_id || null, opening_stock: 0 });
+        if (!newProduct.unit?.trim()) {
+          toast.error('Unit is required');
+          setSaving(false);
+          return;
+        }
+        if (addingCategory && !newCategoryName.trim()) {
+          toast.error('New category name is required');
+          setSaving(false);
+          return;
+        }
+        let categoryId = newProduct.category_id || null;
+        if (addingCategory) {
+          const category = await createCategory({ name: newCategoryName.trim() });
+          categoryId = category.data.id;
+        }
+        const created = await createProduct({ ...newProduct, project_id: projectId, category_id: categoryId, opening_stock: 0 });
         productId = created.data.id;
       }
 
@@ -47,6 +67,25 @@ function ProcurementModal({ projectId, products, categories, onSave, onClose }) 
 
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
   const setProduct = (k, v) => setNewProduct(p => ({ ...p, [k]: v }));
+  const handleNewProductCategory = (value) => {
+    if (value === ADD_CATEGORY_VALUE) {
+      setAddingCategory(true);
+      setProduct('category_id', '');
+      return;
+    }
+    setAddingCategory(false);
+    setNewCategoryName('');
+    setProduct('category_id', value);
+  };
+  const handleNewProductUnit = (value) => {
+    if (value === ADD_UNIT_VALUE) {
+      setAddingUnit(true);
+      setProduct('unit', '');
+      return;
+    }
+    setAddingUnit(false);
+    setProduct('unit', value);
+  };
 
   const handleProductSearch = (value) => {
     setProductSearch(value);
@@ -146,10 +185,14 @@ function ProcurementModal({ projectId, products, categories, onSave, onClose }) 
                   <div className="form-row">
                     <div className="form-group">
                       <label className="form-label">Category</label>
-                      <select className="form-control" value={newProduct.category_id} onChange={e => setProduct('category_id', e.target.value)}>
+                      <select className="form-control" value={addingCategory ? ADD_CATEGORY_VALUE : (newProduct.category_id || '')} onChange={e => handleNewProductCategory(e.target.value)}>
                         <option value="">Select category</option>
                         {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        <option value={ADD_CATEGORY_VALUE}>+ Add new category</option>
                       </select>
+                      {addingCategory && (
+                        <input className="form-control" style={{marginTop:'8px'}} value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} placeholder="New category name" required={isNewProduct} />
+                      )}
                     </div>
                     <div className="form-group">
                       <label className="form-label">Size / Diameter</label>
@@ -159,10 +202,23 @@ function ProcurementModal({ projectId, products, categories, onSave, onClose }) 
                   <div className="form-row">
                     <div className="form-group">
                       <label className="form-label">Unit *</label>
-                      <input className="form-control" list="procurement-unit-options" value={newProduct.unit} onChange={e => setProduct('unit', e.target.value)} placeholder="Select or type unit" required={isNewProduct} />
-                      <datalist id="procurement-unit-options">
-                        {UNIT_OPTIONS.map(unit => <option key={unit} value={unit} />)}
-                      </datalist>
+                      <select className="form-control" value={addingUnit ? ADD_UNIT_VALUE : newProduct.unit} onChange={e => handleNewProductUnit(e.target.value)}>
+                        {UNIT_OPTIONS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+                        <option value={ADD_UNIT_VALUE}>+ Add new unit</option>
+                      </select>
+                      {addingUnit && (
+                        <input className="form-control" style={{marginTop:'8px'}} value={newProduct.unit} onChange={e => setProduct('unit', e.target.value)} placeholder="New unit name" required={isNewProduct} />
+                      )}
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Quantity</label>
+                      <input className="form-control" type="number" min="0.01" step="0.01" value={form.quantity} onChange={e => set('quantity', e.target.value)} required placeholder="e.g. 1721" />
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label">Rate / Unit Price</label>
+                      <input className="form-control" type="number" min="0" step="0.01" value={form.rate} onChange={e => set('rate', e.target.value)} placeholder="0.00" required />
                     </div>
                     <div className="form-group">
                       <label className="form-label">Minimum Stock Alert</label>
@@ -188,18 +244,20 @@ function ProcurementModal({ projectId, products, categories, onSave, onClose }) 
             </div>
             <div className="form-group">
               <label className="form-label">Challan / Invoice Number</label>
-              <input className="form-control" value="Auto generated after submit" disabled />
+              <input className="form-control" value={form.challan_number} onChange={e => set('challan_number', e.target.value)} required placeholder="Enter challan / invoice number" />
             </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label">Quantity *</label>
-                <input className="form-control" type="number" min="0.01" step="0.01" value={form.quantity} onChange={e => set('quantity', e.target.value)} required placeholder="e.g. 1721" />
+            {!isNewProduct && (
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Quantity *</label>
+                  <input className="form-control" type="number" min="0.01" step="0.01" value={form.quantity} onChange={e => set('quantity', e.target.value)} required placeholder="e.g. 1721" />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Rate / Unit Price</label>
+                  <input className="form-control" type="number" min="0" step="0.01" value={form.rate} onChange={e => set('rate', e.target.value)} placeholder="0.00" required />
+                </div>
               </div>
-              <div className="form-group">
-                <label className="form-label">Rate (per unit)</label>
-                <input className="form-control" type="number" min="0" step="0.01" value={form.rate} onChange={e => set('rate', e.target.value)} placeholder="0.00" required />
-              </div>
-            </div>
+            )}
             {total > 0 && (
               <div className="alert alert-success" style={{marginBottom:'12px'}}>
                 <strong>Total Amount: ৳ {total.toLocaleString('en-BD', {minimumFractionDigits: 2})}</strong>
