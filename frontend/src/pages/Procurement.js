@@ -212,7 +212,7 @@ function ProcurementModal({ projectId, products, categories, onSave, onClose }) 
                     </div>
                     <div className="form-group">
                       <label className="form-label">Quantity</label>
-                      <input className="form-control" type="number" min="0.01" step="1" value={form.quantity} onChange={e => set('quantity', e.target.value)} required placeholder="e.g. 1721" />
+                      <input className="form-control" type="number" min="1" step="1" value={form.quantity} onChange={e => set('quantity', e.target.value)} required placeholder="e.g. 1721" />
                     </div>
                   </div>
                   <div className="form-row">
@@ -224,10 +224,6 @@ function ProcurementModal({ projectId, products, categories, onSave, onClose }) 
                       <label className="form-label">Minimum Stock Alert</label>
                       <input className="form-control" type="number" min="0" value={newProduct.minimum_stock} onChange={e => setProduct('minimum_stock', e.target.value)} />
                     </div>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Description</label>
-                    <textarea className="form-control" value={newProduct.description} onChange={e => setProduct('description', e.target.value)} placeholder="Optional notes" />
                   </div>
                 </div>
               </div>
@@ -246,11 +242,17 @@ function ProcurementModal({ projectId, products, categories, onSave, onClose }) 
               <label className="form-label">Challan / Invoice Number</label>
               <input className="form-control" value={form.challan_number} onChange={e => set('challan_number', e.target.value)} required placeholder="Enter challan / invoice number" />
             </div>
+            {isNewProduct && (
+              <div className="form-group">
+                <label className="form-label">Description</label>
+                <textarea className="form-control" value={newProduct.description} onChange={e => setProduct('description', e.target.value)} placeholder="Optional notes" />
+              </div>
+            )}
             {!isNewProduct && (
               <div className="form-row">
                 <div className="form-group">
                   <label className="form-label">Quantity *</label>
-                  <input className="form-control" type="number" min="0.01" step="1" value={form.quantity} onChange={e => set('quantity', e.target.value)} required placeholder="e.g. 1721" />
+                  <input className="form-control" type="number" min="1" step="1" value={form.quantity} onChange={e => set('quantity', e.target.value)} required placeholder="e.g. 1721" />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Rate / Unit Price</label>
