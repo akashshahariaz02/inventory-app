@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { getAuditLog, getProjects, getUsers } from '../api';
+import { formatDateTimeBD } from '../utils/dates';
 
 export default function ActivityLog() {
   const [logs, setLogs] = useState([]);
@@ -114,7 +115,7 @@ export default function ActivityLog() {
                     <tr className="no-hover"><td colSpan={5} className="text-muted" style={{textAlign:'center', padding:'40px'}}>No activity yet</td></tr>
                   ) : logs.map(log => (
                     <tr key={log.id} className="no-hover">
-                      <td data-label="Time" className="text-muted">{log.created_at}</td>
+                      <td data-label="Time" className="text-muted">{formatDateTimeBD(log.created_at)}</td>
                       <td data-label="User">
                         <strong>{log.user_name || 'System'}</strong>
                         {log.user_email && <div className="text-muted" style={{fontSize:'11px'}}>{log.user_email}</div>}

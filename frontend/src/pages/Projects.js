@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { createProject, getProjects } from '../api';
 import { useAuth } from '../context/AuthContext';
+import { formatDateBD } from '../utils/dates';
 
 function ProjectModal({ onSave, onClose }) {
   const [form, setForm] = useState({ name: '', description: '' });
@@ -95,7 +96,7 @@ export default function Projects() {
                       <td><strong>{project.name}</strong></td>
                       <td className="text-muted">{project.description || '-'}</td>
                       <td>{project.product_count || 0}</td>
-                      <td className="text-muted">{project.created_at?.slice(0, 10)}</td>
+                      <td className="text-muted">{formatDateBD(project.created_at)}</td>
                       <td><button className="btn btn-primary btn-sm" onClick={() => navigate(`/projects/${project.id}/dashboard`)}>Open</button></td>
                     </tr>
                   ))}

@@ -6,6 +6,7 @@ import {
 } from 'recharts';
 import { getReport } from '../api';
 import { useParams } from 'react-router-dom';
+import { formatDateBD, formatDateTimeBD, todayBD } from '../utils/dates';
 
 // ── Colour palette ────────────────────────────────────────────────────────────
 const PIE_COLORS = ['#2563eb','#16a34a','#d97706','#dc2626','#7c3aed','#0891b2','#db2777','#65a30d'];
@@ -31,14 +32,19 @@ function getMovementStatus(p) {
 
 function quickRange(key) {
   const now = new Date();
-  const pad = d => d.toISOString().split('T')[0];
+  const pad = d => d ? new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Dhaka',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(d) : todayBD();
   const ago = d => { const x = new Date(now); x.setDate(x.getDate() - d); return pad(x); };
   return ({
     today   : [pad(now), pad(now)],
     week    : [ago(6),   pad(now)],
-    month   : [new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0], pad(now)],
-    quarter : [new Date(now.getFullYear(), Math.floor(now.getMonth()/3)*3, 1).toISOString().split('T')[0], pad(now)],
-    year    : [new Date(now.getFullYear(), 0, 1).toISOString().split('T')[0], pad(now)],
+    month   : [pad(new Date(now.getFullYear(), now.getMonth(), 1)), pad(now)],
+    quarter : [pad(new Date(now.getFullYear(), Math.floor(now.getMonth()/3)*3, 1)), pad(now)],
+    year    : [pad(new Date(now.getFullYear(), 0, 1)), pad(now)],
     all     : ['2000-01-01', pad(now)],
   })[key] || [pad(now), pad(now)];
 }
@@ -376,7 +382,7 @@ export default function Reports() {
     <!-- Header -->
     <div class="report-header">
       <h1>HICC-SRC JV Inventory Report</h1>
-      <div class="subtitle">Period: ${report.fromDate} → ${report.toDate} &nbsp;·&nbsp; Generated: ${new Date().toLocaleString()}</div>
+      <div class="subtitle">Period: ${formatDateBD(report.fromDate)} → ${formatDateBD(report.toDate)} &nbsp;·&nbsp; Generated: ${formatDateTimeBD(new Date())}</div>
       <div class="header-meta">
         <div class="meta-item"><div class="meta-label">Total Products</div><div class="meta-value">${pr.length}</div></div>
         <div class="meta-item"><div class="meta-label">Period IN (qty)</div><div class="meta-value">${fmt(totalIn)}</div></div>

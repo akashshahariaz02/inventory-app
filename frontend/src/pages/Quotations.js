@@ -9,15 +9,15 @@ import {
   getProducts
 } from '../api';
 import { useAuth } from '../context/AuthContext';
-import { format } from 'date-fns';
 import { useParams } from 'react-router-dom';
+import { formatDateBD, todayBD } from '../utils/dates';
 
 function QuotationModal({ projectId, products, quotation, onSave, onClose }) {
   const [form, setForm] = useState(() => ({
     product_id: quotation?.product_id || '',
     product_name: quotation?.product_name || '',
     supplier_name: quotation?.supplier_name || '',
-    quote_date: quotation?.quote_date || format(new Date(), 'yyyy-MM-dd'),
+    quote_date: quotation?.quote_date || todayBD(),
     quantity: quotation?.quantity || 1,
     rate: quotation?.rate || '',
     total_amount: quotation?.total_amount || 0,
@@ -197,7 +197,7 @@ export default function Quotations() {
                     <tr key={q.id} className="no-hover" style={q.status === 'selected' ? {background:'var(--success-light)'} : {}}>
                       <td><strong>{q.product_name || '-'}</strong></td>
                       <td className="fw-600">{q.supplier_name}</td>
-                      <td className="text-muted">{q.quote_date}</td>
+                      <td className="text-muted">{formatDateBD(q.quote_date)}</td>
                       <td className="fw-600">{Number(q.quantity || 1).toLocaleString()}</td>
                       <td className="fw-600 text-primary">{Number(q.rate).toLocaleString()}</td>
                       <td className="fw-600 text-success">{Number(q.total_amount || ((q.quantity || 1) * q.rate)).toLocaleString()}</td>

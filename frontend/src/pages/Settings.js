@@ -1,15 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { createBackup, getBackups, restoreBackup } from '../api';
+import { formatDateTimeBD } from '../utils/dates';
 
 function formatSize(bytes) {
   if (!bytes) return '0 KB';
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatDate(value) {
-  return value ? new Date(value).toLocaleString() : '-';
 }
 
 export default function Settings() {
@@ -159,7 +156,7 @@ export default function Settings() {
                     <tr key={backup.fileName} className="no-hover">
                       <td><strong>{backup.fileName}</strong></td>
                       <td>{formatSize(backup.size)}</td>
-                      <td>{formatDate(backup.createdAt)}</td>
+                      <td>{formatDateTimeBD(backup.createdAt)}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { getCategories, getDashboard } from '../api';
-import { format } from 'date-fns';
 import { useParams } from 'react-router-dom';
+import { formatDateTimeBD } from '../utils/dates';
 
 function Badge({ status }) {
   const map = { pending: 'badge-warning', approved: 'badge-success', rejected: 'badge-danger', good: 'badge-success', 'low stock': 'badge-danger' };
@@ -50,7 +50,7 @@ export default function Dashboard() {
     <div>
       <div className="page-header">
         <h2>Dashboard</h2>
-        <span style={{fontSize:'12px',color:'var(--text3)'}}>Last updated: {format(new Date(), 'dd MMM yyyy, HH:mm')}</span>
+        <span style={{fontSize:'12px',color:'var(--text3)'}}>Last updated: {formatDateTimeBD(new Date())}</span>
       </div>
       <div className="page-content">
         {data.lowStockItems > 0 && (

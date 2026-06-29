@@ -4,11 +4,12 @@ import { getProducts, createProduct, updateProduct, deleteProduct, getCategories
 import { useAuth } from '../context/AuthContext';
 import { useParams } from 'react-router-dom';
 import { parseCsv, readTextFile } from '../utils/csv';
+import { todayBD } from '../utils/dates';
 
 const UNITS = ['Feet', 'Meter', 'Piece', 'Kg', 'Liter', 'Box', 'Roll'];
 const ADD_CATEGORY_VALUE = '__add_category__';
 const ADD_UNIT_VALUE = '__add_unit__';
-const today = () => new Date().toISOString().split('T')[0];
+const today = todayBD;
 
 function LegacyProductModal({ projectId, product, categories, onSave, onClose }) {
   const [form, setForm] = useState(product || {

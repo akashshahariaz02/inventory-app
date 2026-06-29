@@ -2,11 +2,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { getIssues, createIssue, deleteIssue, getProducts, getProjects } from '../api';
 import { useAuth } from '../context/AuthContext';
-import { format } from 'date-fns';
 import { useParams } from 'react-router-dom';
+import { formatDateBD, todayBD } from '../utils/dates';
 
 function IssueModal({ projectId, projectName, products, onSave, onClose }) {
-  const [form, setForm] = useState({ product_id: '', issue_date: format(new Date(), 'yyyy-MM-dd'), issued_to: '', project: projectName || '', site_location: '', quantity: '', purpose: '', approved_by: '', remarks: '' });
+  const [form, setForm] = useState({ product_id: '', issue_date: todayBD(), issued_to: '', project: projectName || '', site_location: '', quantity: '', purpose: '', approved_by: '', remarks: '' });
   const [saving, setSaving] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [productSearch, setProductSearch] = useState('');
@@ -273,7 +273,7 @@ function printIssueInvoice(item, allItems) {
   invoice.document.write(issueDocumentTemplate({
     requestNumber: item.request_number || item.id,
     projectName: item.project || item.project_name || '-',
-    date: item.issue_date,
+    date: formatDateBD(item.issue_date),
     issuedTo: item.issued_to,
     siteLocation: item.site_location || item.location,
     preparedBy: item.created_by_name || item.issued_to,
@@ -358,7 +358,7 @@ export default function Issues() {
                     <tr className="no-hover"><td colSpan={10} className="text-muted" style={{textAlign:'center',padding:'40px'}}>No issue records found</td></tr>
                   ) : items.map(item => (
                     <tr key={item.id} className="no-hover">
-                      <td className="text-muted">{item.issue_date}</td>
+                      <td className="text-muted">{formatDateBD(item.issue_date)}</td>
                       <td><strong>{item.product_name}</strong>{item.size && <span className="text-muted"> {item.size}</span>}</td>
                       <td>{item.issued_to}</td>
                       <td>{item.project || item.project_name || '-'}</td>

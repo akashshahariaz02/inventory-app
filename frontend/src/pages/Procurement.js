@@ -2,9 +2,9 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { getProcurements, createProcurement, deleteProcurement, getProducts, getCategories, createProduct, createCategory } from '../api';
 import { useAuth } from '../context/AuthContext';
-import { format } from 'date-fns';
 import { useParams } from 'react-router-dom';
 import { parseCsv, readTextFile } from '../utils/csv';
+import { formatDateBD, todayBD } from '../utils/dates';
 
 const UNIT_OPTIONS = ['Nos', 'Cu.m', 'Rolls', 'Feet', 'Meter', 'Piece', 'Kg', 'Liter', 'Box', 'Roll'];
 const NEW_PRODUCT_VALUE = '__new_product__';
@@ -12,7 +12,7 @@ const ADD_CATEGORY_VALUE = '__add_category__';
 const ADD_UNIT_VALUE = '__add_unit__';
 
 function ProcurementModal({ projectId, products, categories, onSave, onClose }) {
-  const [form, setForm] = useState({ product_id: '', supplier_name: '', purchase_date: format(new Date(), 'yyyy-MM-dd'), challan_number: '', quantity: '', rate: '', remarks: '' });
+  const [form, setForm] = useState({ product_id: '', supplier_name: '', purchase_date: todayBD(), challan_number: '', quantity: '', rate: '', remarks: '' });
   const [newProduct, setNewProduct] = useState({ name: '', category_id: '', size: '', unit: 'Piece', minimum_stock: 0, description: '' });
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -367,7 +367,7 @@ export default function Procurement() {
           project_id: projectId,
           product_id: product.id,
           supplier_name: row.supplier_name || row.supplier || '',
-          purchase_date: row.purchase_date || row.date || format(new Date(), 'yyyy-MM-dd'),
+          purchase_date: row.purchase_date || row.date || todayBD(),
           challan_number: row.challan_number || row.invoice_number || '',
           quantity,
           rate,
@@ -437,7 +437,7 @@ export default function Procurement() {
                     <tr className="no-hover"><td colSpan={9} className="text-muted" style={{textAlign:'center',padding:'40px'}}>No procurement entries found</td></tr>
                   ) : items.map(item => (
                     <tr key={item.id} className="no-hover">
-                      <td data-label="Date" className="text-muted">{item.purchase_date}</td>
+                      <td data-label="Date" className="text-muted">{formatDateBD(item.purchase_date)}</td>
                       <td data-label="Product"><strong>{item.product_name}</strong>{item.size && <span className="text-muted"> {item.size}</span>}</td>
                       <td data-label="Supplier">{item.supplier_name || '—'}</td>
                       <td data-label="Challan">{item.challan_number || '—'}</td>

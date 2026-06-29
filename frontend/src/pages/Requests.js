@@ -12,6 +12,7 @@ import {
 } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useParams } from 'react-router-dom';
+import { formatDateBD } from '../utils/dates';
 
 const emptyItem = { product_id: '', quantity: '' };
 
@@ -119,7 +120,7 @@ function printApprovedRequestInvoice(request, projectName) {
   `).join('');
   const metaRows = `
     <tr><th>Requested By</th><td>${escapeHtml(request.requester_name || request.requester_display_name || '-')}</td><th>Status</th><td>${escapeHtml(request.status || '-')}</td></tr>
-    <tr><th>Site Location</th><td>${escapeHtml(request.location || '-')}</td><th>Approved At</th><td>${escapeHtml(request.approved_at?.split('T')[0] || '-')}</td></tr>
+    <tr><th>Site Location</th><td>${escapeHtml(request.location || '-')}</td><th>Approved At</th><td>${escapeHtml(formatDateBD(request.approved_at))}</td></tr>
     <tr><th>Purpose</th><td colspan="3">${escapeHtml(request.purpose || '-')}</td></tr>
   `;
   invoice.document.write(documentTemplate({
@@ -127,7 +128,7 @@ function printApprovedRequestInvoice(request, projectName) {
     subtitle: 'Approved Material Request',
     requestNumber: request.request_number || request.id,
     projectName,
-    date: request.created_at?.split('T')[0],
+    date: formatDateBD(request.created_at),
     preparedBy: request.requester_name || request.requester_display_name,
     approvedBy: request.approved_by,
     metaRows,
@@ -398,7 +399,7 @@ export default function Requests() {
                   ) : requests.map(r => (
                     <tr key={r.id} className="no-hover">
                       <td className="text-primary fw-600">{r.request_number}</td>
-                      <td className="text-muted">{r.created_at?.split('T')[0]}</td>
+                      <td className="text-muted">{formatDateBD(r.created_at)}</td>
                       <td>{r.requester_name}</td>
                       <td>
                         {(r.items || []).map(item => (

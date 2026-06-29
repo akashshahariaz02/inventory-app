@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import { deleteUser, getProjects, getUsers, registerUser, resendInvite, updateUser } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { PERMISSION_ITEMS, defaultPermissions, normalizePermissions } from '../utils/permissions';
+import { formatDateBD, formatDateTimeBD } from '../utils/dates';
 
 export default function Users() {
   const { user } = useAuth();
@@ -122,7 +123,6 @@ export default function Users() {
   };
 
   const roleColors = { admin: 'badge-danger', store_manager: 'badge-warning', viewer: 'badge-info' };
-  const formatDateTime = (value) => value ? new Date(value).toLocaleString() : '-';
   const canResendInvite = (u) => !u.is_verified || u.invite_expired;
 
   return (
@@ -187,9 +187,9 @@ export default function Users() {
                         {u.must_change_password ? <span className="badge badge-danger" style={{marginLeft:'6px'}}>Change Password</span> : null}
                       </td>
                       <td className="text-muted">
-                        {u.is_verified ? '-' : formatDateTime(u.invite_expires_at)}
+                        {u.is_verified ? '-' : formatDateTimeBD(u.invite_expires_at)}
                       </td>
-                      <td className="text-muted">{u.created_at?.split('T')[0]}</td>
+                      <td className="text-muted">{formatDateBD(u.created_at)}</td>
                       <td>
                         <button className="btn btn-sm btn-secondary" onClick={() => openPermissionsEditor(u)} style={{marginRight:'6px'}}>Edit</button>
                         {canResendInvite(u) && <button className="btn btn-sm btn-primary" onClick={() => handleResendInvite(u)} style={{marginRight:'6px'}}>{u.invite_expired ? 'Resend' : 'Invite'}</button>}
@@ -308,7 +308,7 @@ export default function Users() {
                 <label className="form-label">Invite Link</label>
                 <input className="form-control" readOnly value={`${window.location.origin}${inviteResult.invite_url}`} onFocus={e => e.target.select()} />
               </div>
-              <div className="text-muted" style={{fontSize:'12px'}}>Expires: {inviteResult.invite_expires_at}</div>
+              <div className="text-muted" style={{fontSize:'12px'}}>Expires: {formatDateTimeBD(inviteResult.invite_expires_at)}</div>
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setInviteResult(null)}>Close</button>
