@@ -111,7 +111,7 @@ function IssueModal({ projectId, projectName, products, onSave, onClose }) {
               </div>
               <div className="form-group">
                 <label className="form-label">Quantity *</label>
-                <input className="form-control" type="number" min="0.01" step="0.01" value={form.quantity} onChange={e => set('quantity', e.target.value)} required
+                <input className="form-control" type="number" min="0.01" step="1" value={form.quantity} onChange={e => set('quantity', e.target.value)} required
                   max={selectedProduct?.current_stock || undefined} />
               </div>
             </div>

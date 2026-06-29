@@ -236,7 +236,7 @@ function RequestModal({ projectId, products, request, onSave, onClose }) {
                             className="form-control"
                             type="number"
                             min="0.01"
-                            step="0.01"
+                            step="1"
                             max={selectedProduct?.current_stock || undefined}
                             value={item.quantity}
                             onChange={e => setItem(index, 'quantity', e.target.value)}

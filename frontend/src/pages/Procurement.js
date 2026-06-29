@@ -212,7 +212,7 @@ function ProcurementModal({ projectId, products, categories, onSave, onClose }) 
                     </div>
                     <div className="form-group">
                       <label className="form-label">Quantity</label>
-                      <input className="form-control" type="number" min="0.01" step="0.01" value={form.quantity} onChange={e => set('quantity', e.target.value)} required placeholder="e.g. 1721" />
+                      <input className="form-control" type="number" min="0.01" step="1" value={form.quantity} onChange={e => set('quantity', e.target.value)} required placeholder="e.g. 1721" />
                     </div>
                   </div>
                   <div className="form-row">
@@ -250,7 +250,7 @@ function ProcurementModal({ projectId, products, categories, onSave, onClose }) 
               <div className="form-row">
                 <div className="form-group">
                   <label className="form-label">Quantity *</label>
-                  <input className="form-control" type="number" min="0.01" step="0.01" value={form.quantity} onChange={e => set('quantity', e.target.value)} required placeholder="e.g. 1721" />
+                  <input className="form-control" type="number" min="0.01" step="1" value={form.quantity} onChange={e => set('quantity', e.target.value)} required placeholder="e.g. 1721" />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Rate / Unit Price</label>
@@ -263,10 +263,12 @@ function ProcurementModal({ projectId, products, categories, onSave, onClose }) 
                 <strong>Total Amount: ৳ {total.toLocaleString('en-BD', {minimumFractionDigits: 2})}</strong>
               </div>
             )}
-            <div className="form-group">
-              <label className="form-label">Remarks</label>
-              <textarea className="form-control" value={form.remarks} onChange={e => set('remarks', e.target.value)} placeholder="Optional notes..." />
-            </div>
+            {!isNewProduct && (
+              <div className="form-group">
+                <label className="form-label">Remarks</label>
+                <textarea className="form-control" value={form.remarks} onChange={e => set('remarks', e.target.value)} placeholder="Optional notes..." />
+              </div>
+            )}
           </div>
           <div className="modal-footer">
             <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>

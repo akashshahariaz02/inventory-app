@@ -94,7 +94,7 @@ function LegacyProductModal({ projectId, product, categories, onSave, onClose })
                   <div className="form-row">
                     <div className="form-group">
                       <label className="form-label">Opening Quantity</label>
-                      <input className="form-control" type="number" min="0" step="0.01" value={form.opening_stock} onChange={e => set('opening_stock', e.target.value)} placeholder="0" />
+                      <input className="form-control" type="number" min="0" step="1" value={form.opening_stock} onChange={e => set('opening_stock', e.target.value)} placeholder="0" />
                     </div>
                     <div className="form-group">
                       <label className="form-label">Rate / Unit Price</label>
@@ -254,7 +254,7 @@ function ProductModal({ projectId, product, categories, onSave, onClose }) {
               {!product ? (
                 <div className="form-group">
                   <label className="form-label">Quantity</label>
-                  <input className="form-control" type="number" min="0" step="0.01" value={form.opening_stock} onChange={e => set('opening_stock', e.target.value)} placeholder="0" />
+                  <input className="form-control" type="number" min="0" step="1" value={form.opening_stock} onChange={e => set('opening_stock', e.target.value)} placeholder="0" />
                 </div>
               ) : (
                 <div className="form-group">
