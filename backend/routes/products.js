@@ -87,7 +87,6 @@ router.post('/', authenticateToken, requireRole('admin', 'store_manager'), requi
   if (stock > 0 && !supplier_name?.trim()) return res.status(400).json({ error: 'Supplier name is required when opening stock is greater than 0' });
   if (stock > 0 && !purchase_date) return res.status(400).json({ error: 'Purchase date is required when opening stock is greater than 0' });
   if (stock > 0 && !challan_number?.trim()) return res.status(400).json({ error: 'Challan / invoice number is required when opening stock is greater than 0' });
-  if (stock > 0 && (rate === undefined || rate === null || rate === '')) return res.status(400).json({ error: 'Rate is required when opening stock is greater than 0' });
 
   await db.transaction(async tx => {
     await tx.run(`

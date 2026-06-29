@@ -141,6 +141,20 @@ async function testProductProcurementIssue() {
   assert.strictEqual(opening.supplier_name, 'Smoke Supplier', 'opening procurement should use actual supplier');
   assert.strictEqual(opening.challan_number, `${ids.prefix}-OPENING-001`, 'opening procurement should use manual challan');
 
+  const procurementWithoutRate = await request('/procurements', {
+    method: 'POST',
+    token,
+    body: {
+      project_id: ids.project,
+      product_id: productId,
+      supplier_name: 'Smoke Supplier',
+      purchase_date: '2026-06-09',
+      challan_number: `${ids.prefix}-NO-RATE-001`,
+      quantity: 5
+    }
+  });
+  assert.strictEqual(procurementWithoutRate.res.status, 201, 'procurement creation should work without rate');
+
   const customUnitProduct = await request('/products', {
     method: 'POST',
     token,
@@ -154,7 +168,6 @@ async function testProductProcurementIssue() {
       supplier_name: 'Smoke Supplier',
       purchase_date: '2026-06-09',
       challan_number: `${ids.prefix}-CUSTOM-UNIT-001`,
-      rate: 25,
       minimum_stock: 1,
       description: 'Smoke test custom unit product'
     }
@@ -180,7 +193,7 @@ async function testProductProcurementIssue() {
     }
   });
   assert.strictEqual(issue.res.status, 201, 'issue creation should work');
-  assert.strictEqual(Number(issue.data.new_stock), 75, 'issue should reduce stock');
+  assert.strictEqual(Number(issue.data.new_stock), 80, 'issue should reduce stock');
 
   const badIssue = await request('/issues', {
     method: 'POST',

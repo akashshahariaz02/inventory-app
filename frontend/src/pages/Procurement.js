@@ -28,8 +28,8 @@ function ProcurementModal({ projectId, products, categories, onSave, onClose }) 
     setSaving(true);
     try {
       let productId = form.product_id;
-      if (!productId || !form.purchase_date || !form.challan_number?.trim() || !form.quantity || !form.rate) {
-        toast.error('Please select a product and enter quantity, rate, purchase date, and challan / invoice number before saving.');
+      if (!productId || !form.purchase_date || !form.challan_number?.trim() || !form.quantity) {
+        toast.error('Please select a product and enter quantity, purchase date, and challan / invoice number before saving.');
         setSaving(false);
         return;
       }
@@ -191,9 +191,6 @@ function ProcurementModal({ projectId, products, categories, onSave, onClose }) 
             </div>
             {isNewProduct && (
               <div className="card" style={{boxShadow:'none', marginBottom:'16px'}}>
-                <div className="card-header">
-                  <span className="card-title">New Product Details</span>
-                </div>
                 <div className="card-body">
                   <div className="form-group">
                     <label className="form-label">Product Name *</label>
@@ -235,35 +232,51 @@ function ProcurementModal({ projectId, products, categories, onSave, onClose }) 
                   <div className="form-row">
                     <div className="form-group">
                       <label className="form-label">Rate / Unit Price</label>
-                      <input className="form-control" type="number" min="0" step="0.01" value={form.rate} onChange={e => set('rate', e.target.value)} placeholder="0.00" required />
+                      <input className="form-control" type="number" min="0" step="0.01" value={form.rate} onChange={e => set('rate', e.target.value)} placeholder="Optional" />
                     </div>
                     <div className="form-group">
                       <label className="form-label">Minimum Stock Alert</label>
                       <input className="form-control" type="number" min="0" value={newProduct.minimum_stock} onChange={e => setProduct('minimum_stock', e.target.value)} />
                     </div>
                   </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label">Supplier Name</label>
+                      <input className="form-control" value={form.supplier_name} onChange={e => set('supplier_name', e.target.value)} placeholder="Supplier / Vendor" />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Purchase Date *</label>
+                      <input className="form-control" type="date" value={form.purchase_date} onChange={e => set('purchase_date', e.target.value)} required />
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Challan / Invoice Number</label>
+                    <input className="form-control" value={form.challan_number} onChange={e => set('challan_number', e.target.value)} required placeholder="Enter challan / invoice number" />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Description</label>
+                    <textarea className="form-control" value={newProduct.description} onChange={e => setProduct('description', e.target.value)} placeholder="Optional notes" />
+                  </div>
                 </div>
               </div>
             )}
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label">Supplier Name</label>
-                <input className="form-control" value={form.supplier_name} onChange={e => set('supplier_name', e.target.value)} placeholder="Supplier / Vendor" />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Purchase Date *</label>
-                <input className="form-control" type="date" value={form.purchase_date} onChange={e => set('purchase_date', e.target.value)} required />
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Challan / Invoice Number</label>
-              <input className="form-control" value={form.challan_number} onChange={e => set('challan_number', e.target.value)} required placeholder="Enter challan / invoice number" />
-            </div>
-            {isNewProduct && (
-              <div className="form-group">
-                <label className="form-label">Description</label>
-                <textarea className="form-control" value={newProduct.description} onChange={e => setProduct('description', e.target.value)} placeholder="Optional notes" />
-              </div>
+            {!isNewProduct && (
+              <>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Supplier Name</label>
+                    <input className="form-control" value={form.supplier_name} onChange={e => set('supplier_name', e.target.value)} placeholder="Supplier / Vendor" />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Purchase Date *</label>
+                    <input className="form-control" type="date" value={form.purchase_date} onChange={e => set('purchase_date', e.target.value)} required />
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Challan / Invoice Number</label>
+                  <input className="form-control" value={form.challan_number} onChange={e => set('challan_number', e.target.value)} required placeholder="Enter challan / invoice number" />
+                </div>
+              </>
             )}
             {!isNewProduct && (
               <div className="form-row">
@@ -273,7 +286,7 @@ function ProcurementModal({ projectId, products, categories, onSave, onClose }) 
                 </div>
                 <div className="form-group">
                   <label className="form-label">Rate / Unit Price</label>
-                  <input className="form-control" type="number" min="0" step="0.01" value={form.rate} onChange={e => set('rate', e.target.value)} placeholder="0.00" required />
+                  <input className="form-control" type="number" min="0" step="0.01" value={form.rate} onChange={e => set('rate', e.target.value)} placeholder="Optional" />
                 </div>
               </div>
             )}
@@ -358,8 +371,8 @@ export default function Procurement() {
       for (const row of rows) {
         const product = findProductForImport(row);
         const quantity = row.quantity || row.qty;
-        const rate = row.rate || row.unit_price;
-        if (!product || !quantity || !rate) {
+        const rate = row.rate || row.unit_price || '';
+        if (!product || !quantity) {
           skipped += 1;
           continue;
         }

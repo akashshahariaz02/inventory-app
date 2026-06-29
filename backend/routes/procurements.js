@@ -67,15 +67,15 @@ router.get('/:id', authenticateToken, async (req, res) => {
 // Create procurement — stock auto increases
 router.post('/', authenticateToken, requireRole('admin', 'store_manager'), requireProjectAccess(req => req.body.project_id), async (req, res) => {
   const { project_id, product_id, supplier_name, purchase_date, challan_number, project, site_location, quantity, rate, remarks } = req.body;
-  if (!project_id || !product_id || !quantity || !rate || !purchase_date || !challan_number?.trim()) {
-    return res.status(400).json({ error: 'project_id, product_id, quantity, rate, purchase_date, challan_number are required' });
+  if (!project_id || !product_id || !quantity || !purchase_date || !challan_number?.trim()) {
+    return res.status(400).json({ error: 'project_id, product_id, quantity, purchase_date, challan_number are required' });
   }
 
   const product = await db.get('SELECT * FROM products WHERE id = ? AND project_id = ?', product_id, project_id);
   if (!product) return res.status(404).json({ error: 'Product not found' });
 
   const qty = parseFloat(quantity);
-  const rateNum = parseFloat(rate);
+  const rateNum = rate === undefined || rate === null || rate === '' ? 0 : parseFloat(rate);
   if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ error: 'Quantity must be greater than 0' });
   if (!Number.isFinite(rateNum) || rateNum < 0) return res.status(400).json({ error: 'Rate cannot be negative' });
   const total = qty * rateNum;

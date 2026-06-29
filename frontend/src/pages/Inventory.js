@@ -31,8 +31,8 @@ function LegacyProductModal({ projectId, product, categories, onSave, onClose })
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!product && openingQty > 0 && (!form.supplier_name?.trim() || !form.purchase_date || form.rate === '' || form.rate === null)) {
-      toast.error('Supplier, purchase date, and rate are required when opening stock is greater than 0');
+    if (!product && openingQty > 0 && (!form.supplier_name?.trim() || !form.purchase_date)) {
+      toast.error('Supplier and purchase date are required when opening stock is greater than 0');
       return;
     }
     setSaving(true);
@@ -99,7 +99,7 @@ function LegacyProductModal({ projectId, product, categories, onSave, onClose })
                     </div>
                     <div className="form-group">
                       <label className="form-label">Rate / Unit Price</label>
-                      <input className="form-control" type="number" min="0" step="0.01" value={form.rate} onChange={e => set('rate', e.target.value)} required={openingQty > 0} placeholder="0.00" />
+                      <input className="form-control" type="number" min="0" step="0.01" value={form.rate} onChange={e => set('rate', e.target.value)} placeholder="Optional" />
                     </div>
                   </div>
                   <div className="form-row">
@@ -186,8 +186,8 @@ function ProductModal({ projectId, product, categories, onSave, onClose }) {
     e.preventDefault();
     if (!form.unit?.trim()) return toast.error('Unit is required');
     if (addingCategory && !newCategoryName.trim()) return toast.error('New category name is required');
-    if (!product && openingQty > 0 && (!form.supplier_name?.trim() || !form.purchase_date || !form.challan_number?.trim() || form.rate === '' || form.rate === null)) {
-      toast.error('Supplier, purchase date, challan / invoice number, and rate are required when quantity is greater than 0');
+    if (!product && openingQty > 0 && (!form.supplier_name?.trim() || !form.purchase_date || !form.challan_number?.trim())) {
+      toast.error('Supplier, purchase date, and challan / invoice number are required when quantity is greater than 0');
       return;
     }
 
@@ -270,7 +270,7 @@ function ProductModal({ projectId, product, categories, onSave, onClose }) {
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Rate / Unit Price</label>
-                    <input className="form-control" type="number" min="0" step="0.01" value={form.rate} onChange={e => set('rate', e.target.value)} required={openingQty > 0} placeholder="0.00" />
+                    <input className="form-control" type="number" min="0" step="0.01" value={form.rate} onChange={e => set('rate', e.target.value)} placeholder="Optional" />
                   </div>
                   <div className="form-group">
                     <label className="form-label">Minimum Stock Alert</label>
