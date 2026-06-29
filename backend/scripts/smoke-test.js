@@ -141,6 +141,22 @@ async function testProductProcurementIssue() {
   assert.strictEqual(opening.supplier_name, 'Smoke Supplier', 'opening procurement should use actual supplier');
   assert.strictEqual(opening.challan_number, `${ids.prefix}-OPENING-001`, 'opening procurement should use manual challan');
 
+  const customUnitProduct = await request('/products', {
+    method: 'POST',
+    token,
+    body: {
+      project_id: ids.project,
+      name: `${ids.prefix} Custom Unit Item`,
+      category_id: null,
+      size: 'Custom',
+      unit: 'Bundle',
+      opening_stock: 0,
+      minimum_stock: 1,
+      description: 'Smoke test custom unit product'
+    }
+  });
+  assert.strictEqual(customUnitProduct.res.status, 201, 'product creation should accept custom units');
+
   const issue = await request('/issues', {
     method: 'POST',
     token,

@@ -181,7 +181,7 @@ async function initializeDatabase() {
       name TEXT NOT NULL,
       category_id TEXT REFERENCES categories(id),
       size TEXT,
-      unit TEXT NOT NULL DEFAULT 'Piece' CHECK(unit IN ('Feet','Meter','Piece','Kg','Liter','Box','Roll')),
+      unit TEXT NOT NULL DEFAULT 'Piece',
       opening_stock REAL DEFAULT 0,
       current_stock REAL DEFAULT 0,
       minimum_stock REAL DEFAULT 0,
@@ -285,6 +285,8 @@ async function initializeDatabase() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  await db.exec('ALTER TABLE products DROP CONSTRAINT IF EXISTS products_unit_check');
 
   await createDatabaseIndexes();
 
