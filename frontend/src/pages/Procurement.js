@@ -49,19 +49,36 @@ function ProcurementModal({ projectId, products, categories, onSave, onClose }) 
           setSaving(false);
           return;
         }
+        if (!form.supplier_name?.trim()) {
+          toast.error('Supplier name is required when adding a new product with IN quantity.');
+          setSaving(false);
+          return;
+        }
         let categoryId = newProduct.category_id || null;
         if (addingCategory) {
           const category = await createCategory({ name: newCategoryName.trim() });
           categoryId = category.data.id;
         }
-        const created = await createProduct({ ...newProduct, project_id: projectId, category_id: categoryId, opening_stock: 0 });
-        productId = created.data.id;
+        const created = await createProduct({
+          ...newProduct,
+          project_id: projectId,
+          category_id: categoryId,
+          opening_stock: form.quantity,
+          supplier_name: form.supplier_name,
+          purchase_date: form.purchase_date,
+          challan_number: form.challan_number,
+          rate: form.rate,
+          remarks: newProduct.description
+        });
+        toast.success(`Product and procurement added! ${created.data.challan_number || form.challan_number}`);
+        onSave();
+        return;
       }
 
       const res = await createProcurement({ ...form, project_id: projectId, product_id: productId });
       toast.success(`Procurement added! ${res.data.challan_number}`);
       onSave();
-    } catch (err) { toast.error(err.response?.data?.error || 'Failed'); }
+    } catch (err) { toast.error(err.response?.data?.error || err.response?.data?.message || 'Failed'); }
     finally { setSaving(false); }
   };
 

@@ -106,7 +106,7 @@ router.post('/', authenticateToken, requireRole('admin', 'store_manager'), requi
     await logAudit(tx, req.user.id, 'CREATE', 'products', id, null, req.body, description || 'Product created');
   });
 
-  res.status(201).json({ message: 'Product created', id });
+  res.status(201).json({ message: 'Product created', id, challan_number: stock > 0 ? challan_number.trim() : null });
 });
 
 // Update product

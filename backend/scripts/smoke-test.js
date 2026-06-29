@@ -150,12 +150,21 @@ async function testProductProcurementIssue() {
       category_id: null,
       size: 'Custom',
       unit: 'Bundle',
-      opening_stock: 0,
+      opening_stock: 7,
+      supplier_name: 'Smoke Supplier',
+      purchase_date: '2026-06-09',
+      challan_number: `${ids.prefix}-CUSTOM-UNIT-001`,
+      rate: 25,
       minimum_stock: 1,
       description: 'Smoke test custom unit product'
     }
   });
-  assert.strictEqual(customUnitProduct.res.status, 201, 'product creation should accept custom units');
+  assert.strictEqual(customUnitProduct.res.status, 201, 'product creation should accept custom units with opening stock');
+
+  const customUnitProcurements = await request(`/procurements?project_id=${ids.project}`, { token });
+  const customUnitOpening = customUnitProcurements.data.find(row => row.product_id === customUnitProduct.data.id);
+  assert.ok(customUnitOpening, 'custom unit product should create opening procurement');
+  assert.strictEqual(customUnitOpening.unit, 'Bundle', 'custom unit should appear in procurement list');
 
   const issue = await request('/issues', {
     method: 'POST',
