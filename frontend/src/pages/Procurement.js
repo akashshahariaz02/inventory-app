@@ -13,7 +13,7 @@ const ADD_UNIT_VALUE = '__add_unit__';
 
 function ProcurementModal({ projectId, products, categories, onSave, onClose }) {
   const [form, setForm] = useState({ product_id: '', supplier_name: '', purchase_date: todayBD(), challan_number: '', quantity: '', rate: '', remarks: '' });
-  const [newProduct, setNewProduct] = useState({ name: '', category_id: '', size: '', unit: 'Piece', minimum_stock: 0, description: '' });
+  const [newProduct, setNewProduct] = useState({ name: '', category_id: '', size: '', unit: 'Piece', minimum_stock: '', description: '' });
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [addingUnit, setAddingUnit] = useState(false);

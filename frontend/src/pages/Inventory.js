@@ -17,11 +17,11 @@ function LegacyProductModal({ projectId, product, categories, onSave, onClose })
     category_id: '',
     size: '',
     unit: 'Piece',
-    opening_stock: 0,
+    opening_stock: '',
     supplier_name: '',
     purchase_date: today(),
     rate: '',
-    minimum_stock: 0,
+    minimum_stock: '',
     description: ''
   });
   const [saving, setSaving] = useState(false);
@@ -145,12 +145,12 @@ function ProductModal({ projectId, product, categories, onSave, onClose }) {
     category_id: '',
     size: '',
     unit: 'Piece',
-    opening_stock: 0,
+    opening_stock: '',
     supplier_name: '',
     purchase_date: today(),
     challan_number: '',
     rate: '',
-    minimum_stock: 0,
+    minimum_stock: '',
     description: ''
   });
   const [addingCategory, setAddingCategory] = useState(false);
