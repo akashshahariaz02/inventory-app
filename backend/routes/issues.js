@@ -80,52 +80,76 @@ router.get('/:id', authenticateToken, async (req, res) => {
 // Create issue — stock auto decreases
 router.post('/', authenticateToken, requireRole('admin', 'store_manager'), requireProjectAccess(req => req.body.project_id), async (req, res) => {
   const { project_id, product_id, issue_date, issued_to, project, site_location, location, request_number, quantity, purpose, approved_by, remarks } = req.body;
-  if (!project_id || !product_id || !quantity || !issue_date || !issued_to) {
-    return res.status(400).json({ error: 'project_id, product_id, quantity, issue_date, issued_to are required' });
+  const rawItems = Array.isArray(req.body.items) && req.body.items.length
+    ? req.body.items
+    : [{ product_id, quantity }];
+  const items = rawItems
+    .map(item => ({ product_id: item.product_id, quantity: parseFloat(item.quantity) }))
+    .filter(item => item.product_id && Number.isFinite(item.quantity) && item.quantity > 0);
+
+  if (!project_id || !issue_date || !issued_to || !items.length) {
+    return res.status(400).json({ error: 'project_id, issue_date, issued_to, and at least one valid item are required' });
   }
 
-  const product = await db.get('SELECT * FROM products WHERE id = ? AND project_id = ?', product_id, project_id);
-  if (!product) return res.status(404).json({ error: 'Product not found' });
-
-  const qty = parseFloat(quantity);
-  if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ error: 'Quantity must be greater than 0' });
-  if (product.current_stock < qty) {
-    return res.status(400).json({
-      error: `Insufficient stock. Available: ${product.current_stock} ${product.unit}, Requested: ${qty} ${product.unit}`
-    });
+  const requestedByProduct = new Map();
+  for (const item of items) {
+    requestedByProduct.set(item.product_id, (requestedByProduct.get(item.product_id) || 0) + item.quantity);
   }
 
   const finalSiteLocation = site_location ?? location;
   const finalRequestNumber = request_number?.trim() || await generateRequestNumber(project_id);
-  const id = uuidv4();
+  const createdIds = [];
+  const updatedStocks = [];
   try {
     await db.transaction(async tx => {
-      const stock = await getAvailableStockForUpdate(tx, product_id);
-      if (!stock || stock.project_id !== project_id) {
-        const err = new Error('Product not found');
-        err.statusCode = 404;
-        throw err;
-      }
-      if (stock.available < qty) {
-        const err = new Error(`Insufficient stock. Available: ${stock.available} ${stock.unit}, Requested: ${qty} ${stock.unit}`);
-        err.statusCode = 400;
-        throw err;
+      for (const [itemProductId, requestedQty] of requestedByProduct.entries()) {
+        const stock = await getAvailableStockForUpdate(tx, itemProductId);
+        if (!stock || stock.project_id !== project_id) {
+          const err = new Error('Product not found');
+          err.statusCode = 404;
+          throw err;
+        }
+        if (stock.available < requestedQty) {
+          const err = new Error(`Insufficient stock for ${stock.name}. Available: ${stock.available} ${stock.unit}, Requested: ${requestedQty} ${stock.unit}`);
+          err.statusCode = 400;
+          throw err;
+        }
       }
 
-      await tx.run(`
-        INSERT INTO issues (id, project_id, product_id, issue_date, issued_to, project, site_location, location, request_number, quantity, purpose, approved_by, remarks, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, id, project_id, product_id, issue_date, issued_to, project, finalSiteLocation, finalSiteLocation, finalRequestNumber, qty, purpose, approved_by, remarks, req.user.id);
+      for (const item of items) {
+        const id = uuidv4();
+        await tx.run(`
+          INSERT INTO issues (id, project_id, product_id, issue_date, issued_to, project, site_location, location, request_number, quantity, purpose, approved_by, remarks, created_by)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, id, project_id, item.product_id, issue_date, issued_to, project, finalSiteLocation, finalSiteLocation, finalRequestNumber, item.quantity, purpose, approved_by, remarks, req.user.id);
+        createdIds.push(id);
+      }
 
-      await recalculateProductStock(tx, product_id);
-      await logAudit(tx, req.user.id, 'CREATE', 'issues', id, null, { ...req.body, request_number: finalRequestNumber, quantity: qty, site_location: finalSiteLocation }, purpose || remarks || 'Material issued');
+      for (const itemProductId of requestedByProduct.keys()) {
+        await recalculateProductStock(tx, itemProductId);
+        const updated = await tx.get('SELECT id, current_stock FROM products WHERE id = ?', itemProductId);
+        updatedStocks.push(updated);
+      }
+
+      await logAudit(tx, req.user.id, 'CREATE', 'issues', finalRequestNumber, null, {
+        ...req.body,
+        request_number: finalRequestNumber,
+        items,
+        site_location: finalSiteLocation
+      }, purpose || remarks || 'Material issued');
     });
   } catch (err) {
     return res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : 'Failed to record issue' });
   }
 
-  const updatedStock = await db.get('SELECT current_stock FROM products WHERE id = ?', product_id);
-  res.status(201).json({ message: 'Issue recorded, stock updated', id, request_number: finalRequestNumber, new_stock: updatedStock.current_stock });
+  res.status(201).json({
+    message: 'Issue recorded, stock updated',
+    id: createdIds[0],
+    ids: createdIds,
+    request_number: finalRequestNumber,
+    new_stock: updatedStocks[0]?.current_stock,
+    updated_stocks: updatedStocks
+  });
 });
 
 // Update issue
@@ -165,7 +189,7 @@ router.put('/:id', authenticateToken, requireRole('admin'), async (req, res) => 
     return res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : 'Failed to update issue' });
   }
 
-  res.json({ message: 'Issue updated' });
+res.json({ message: 'Issue updated' });
 });
 
 // Delete issue

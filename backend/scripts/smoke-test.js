@@ -173,9 +173,10 @@ async function testProductProcurementIssue() {
     }
   });
   assert.strictEqual(customUnitProduct.res.status, 201, 'product creation should accept custom units with opening stock');
+  const customUnitProductId = customUnitProduct.data.id;
 
   const customUnitProcurements = await request(`/procurements?project_id=${ids.project}`, { token });
-  const customUnitOpening = customUnitProcurements.data.find(row => row.product_id === customUnitProduct.data.id);
+  const customUnitOpening = customUnitProcurements.data.find(row => row.product_id === customUnitProductId);
   assert.ok(customUnitOpening, 'custom unit product should create opening procurement');
   assert.strictEqual(customUnitOpening.unit, 'Bundle', 'custom unit should appear in procurement list');
 
@@ -194,6 +195,33 @@ async function testProductProcurementIssue() {
   });
   assert.strictEqual(issue.res.status, 201, 'issue creation should work');
   assert.strictEqual(Number(issue.data.new_stock), 80, 'issue should reduce stock');
+
+  const multiIssue = await request('/issues', {
+    method: 'POST',
+    token,
+    body: {
+      project_id: ids.project,
+      issue_date: '2026-06-09',
+      issued_to: 'Smoke Receiver',
+      site_location: 'Smoke Site',
+      purpose: 'Smoke multi issue',
+      items: [
+        { product_id: productId, quantity: 5 },
+        { product_id: customUnitProductId, quantity: 2 }
+      ]
+    }
+  });
+  assert.strictEqual(multiIssue.res.status, 201, 'multi-item issue creation should work');
+  assert.strictEqual(multiIssue.data.ids.length, 2, 'multi-item issue should create one row per item');
+
+  const multiIssues = await request(`/issues?project_id=${ids.project}`, { token });
+  const rowsForMultiIssue = multiIssues.data.filter(row => row.request_number === multiIssue.data.request_number);
+  assert.strictEqual(rowsForMultiIssue.length, 2, 'multi-item issue rows should share one request number');
+
+  const updatedProduct = await request(`/products/${productId}`, { token });
+  const updatedCustomUnitProduct = await request(`/products/${customUnitProductId}`, { token });
+  assert.strictEqual(Number(updatedProduct.data.current_stock), 75, 'multi issue should reduce first product stock');
+  assert.strictEqual(Number(updatedCustomUnitProduct.data.current_stock), 5, 'multi issue should reduce second product stock');
 
   const badIssue = await request('/issues', {
     method: 'POST',

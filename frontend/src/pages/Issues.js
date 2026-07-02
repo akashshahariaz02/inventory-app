@@ -6,46 +6,33 @@ import { useParams } from 'react-router-dom';
 import { formatDateBD, todayBD } from '../utils/dates';
 
 function IssueModal({ projectId, projectName, products, onSave, onClose }) {
-  const [form, setForm] = useState({ product_id: '', issue_date: todayBD(), issued_to: '', project: projectName || '', site_location: '', quantity: '', purpose: '', approved_by: '', remarks: '' });
+  const [form, setForm] = useState({
+    issue_date: todayBD(),
+    issued_to: '',
+    project: projectName || '',
+    site_location: '',
+    purpose: '',
+    approved_by: '',
+    remarks: '',
+    items: [{ product_id: '', quantity: '' }]
+  });
   const [saving, setSaving] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState(null);
-  const [productSearch, setProductSearch] = useState('');
-  const [showSuggestions, setShowSuggestions] = useState(false);
 
-  const set = (k, v) => {
-    setForm(p => ({ ...p, [k]: v }));
-    if (k === 'product_id') setSelectedProduct(products.find(p => p.id === v) || null);
+  const productById = (id) => products.find(product => product.id === id);
+  const set = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
+  const setItem = (index, key, value) => {
+    setForm(prev => ({
+      ...prev,
+      items: prev.items.map((item, i) => (i === index ? { ...item, [key]: value } : item))
+    }));
   };
-
-  const handleProductSearch = (value) => {
-    setProductSearch(value);
-    set('product_id', '');
-    setShowSuggestions(true);
+  const addItem = () => setForm(prev => ({ ...prev, items: [...prev.items, { product_id: '', quantity: '' }] }));
+  const removeItem = (index) => {
+    setForm(prev => ({
+      ...prev,
+      items: prev.items.length > 1 ? prev.items.filter((_, i) => i !== index) : prev.items
+    }));
   };
-
-  const filteredProducts = products.filter(product => {
-    const query = productSearch.trim().toLowerCase();
-    if (!query) return false;
-    const label = `${product.name}${product.size ? ` (${product.size})` : ''}`.toLowerCase();
-    const displayLabel = `${product.name} — Available: ${product.current_stock} ${product.unit}`.toLowerCase();
-    return label.includes(query) || displayLabel.includes(query) || query.includes(label) || query.includes(displayLabel);
-  }).slice(0, 8);
-
-  const selectProduct = (product) => {
-    setProductSearch(`${product.name}${product.size ? ` (${product.size})` : ''} — Available: ${product.current_stock} ${product.unit}`);
-    set('product_id', product.id);
-    setShowSuggestions(false);
-  };
-
-  useEffect(() => {
-    if (!form.product_id) {
-      setSelectedProduct(null);
-      return;
-    }
-
-    const match = products.find(p => p.id === form.product_id);
-    setSelectedProduct(match || null);
-  }, [form.product_id, products]);
 
   useEffect(() => {
     setForm(prev => ({ ...prev, project: projectName || '' }));
@@ -53,17 +40,34 @@ function IssueModal({ projectId, projectName, products, onSave, onClose }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.product_id || !form.issue_date || !form.issued_to || !form.quantity) {
-      toast.error('Please select a product, issue date, issued to person, and quantity before saving.');
+    const items = form.items.filter(item => item.product_id && parseFloat(item.quantity) > 0);
+    if (!form.issue_date || !form.issued_to || !items.length) {
+      toast.error('Please enter issue date, issued to person, and at least one product item.');
       return;
     }
+
+    const requestedByProduct = new Map();
+    for (const item of items) {
+      requestedByProduct.set(item.product_id, (requestedByProduct.get(item.product_id) || 0) + Number(item.quantity || 0));
+    }
+    for (const [productId, requestedQty] of requestedByProduct.entries()) {
+      const product = productById(productId);
+      if (product && requestedQty > Number(product.current_stock || 0)) {
+        toast.error(`Insufficient stock for ${product.name}. Available: ${product.current_stock} ${product.unit}, requested: ${requestedQty} ${product.unit}`);
+        return;
+      }
+    }
+
     setSaving(true);
     try {
-      const res = await createIssue({ ...form, project: projectName || form.project, project_id: projectId });
+      const res = await createIssue({ ...form, items, project: projectName || form.project, project_id: projectId });
       toast.success(`Issue recorded! ${res.data.request_number}`);
       onSave();
-    } catch (err) { toast.error(err.response?.data?.error || 'Failed'); }
-    finally { setSaving(false); }
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -71,50 +75,75 @@ function IssueModal({ projectId, projectName, products, onSave, onClose }) {
       <div className="modal">
         <div className="modal-header">
           <h3 className="modal-title">New Material Issue (OUT)</h3>
-          <button className="btn-close" onClick={onClose}>×</button>
+          <button className="btn-close" onClick={onClose}>x</button>
         </div>
         <form onSubmit={handleSubmit}>
           <div className="modal-body">
-            <div className="form-group">
-              <label className="form-label">Product *</label>
-              <input
-                className="form-control"
-                autoFocus
-                value={productSearch}
-                onChange={e => handleProductSearch(e.target.value)}
-                onFocus={() => setShowSuggestions(true)}
-                onBlur={() => setTimeout(() => setShowSuggestions(false), 120)}
-                placeholder="Type to search product..."
-                required
-              />
-              {showSuggestions && filteredProducts.length > 0 && (
-                <ul className="product-suggest-menu">
-                  {filteredProducts.map(product => (
-                    <li key={product.id}>
-                      <button type="button" className="product-suggest-item" onMouseDown={e => e.preventDefault()} onClick={() => selectProduct(product)}>
-                        {product.name}{product.size ? ` (${product.size})` : ''} — Available: {product.current_stock} {product.unit}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            {selectedProduct && (
-              <div className="alert alert-success" style={{marginBottom:'12px'}}>
-                Available Stock: <strong>{selectedProduct.current_stock} {selectedProduct.unit}</strong>
-              </div>
-            )}
             <div className="form-row">
               <div className="form-group">
                 <label className="form-label">Issue Date *</label>
                 <input className="form-control" type="date" value={form.issue_date} onChange={e => set('issue_date', e.target.value)} required />
               </div>
               <div className="form-group">
-                <label className="form-label">Quantity *</label>
-                <input className="form-control" type="number" min="1" step="1" value={form.quantity} onChange={e => set('quantity', e.target.value)} required
-                  max={selectedProduct?.current_stock || undefined} />
+                <label className="form-label">Req. No</label>
+                <input className="form-control" value="Auto generated after submit" disabled />
               </div>
             </div>
+
+            <div className="form-group">
+              <label className="form-label">Items *</label>
+              {form.items.map((item, index) => {
+                const selectedProduct = productById(item.product_id);
+                return (
+                  <div key={index} className="card" style={{ boxShadow: 'none', marginBottom: '10px' }}>
+                    <div className="card-body" style={{ padding: '14px' }}>
+                      <div className="form-row-3">
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label">Product</label>
+                          <select className="form-control" value={item.product_id} onChange={e => setItem(index, 'product_id', e.target.value)} required>
+                            <option value="">Select product...</option>
+                            {products.map(product => (
+                              <option key={product.id} value={product.id}>
+                                {product.name} {product.size ? `(${product.size})` : ''} - Available: {product.current_stock} {product.unit}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label">Quantity</label>
+                          <input
+                            className="form-control"
+                            type="number"
+                            min="1"
+                            step="1"
+                            max={selectedProduct?.current_stock || undefined}
+                            value={item.quantity}
+                            onChange={e => setItem(index, 'quantity', e.target.value)}
+                            required
+                          />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label">Unit</label>
+                          <input className="form-control" value={selectedProduct?.unit || ''} disabled placeholder="Auto" />
+                        </div>
+                      </div>
+                      {selectedProduct && (
+                        <div className="text-muted" style={{ fontSize: '12px', marginTop: '8px' }}>
+                          Available Stock: {selectedProduct.current_stock} {selectedProduct.unit}
+                        </div>
+                      )}
+                      {form.items.length > 1 && (
+                        <button type="button" className="btn btn-danger btn-sm" style={{ marginTop: '10px' }} onClick={() => removeItem(index)}>
+                          Remove Item
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              <button type="button" className="btn btn-secondary btn-sm" onClick={addItem}>+ Add Item</button>
+            </div>
+
             <div className="form-row">
               <div className="form-group">
                 <label className="form-label">Issued To *</label>
@@ -125,25 +154,19 @@ function IssueModal({ projectId, projectName, products, onSave, onClose }) {
                 <input className="form-control" value={projectName || form.project || ''} disabled placeholder="Project name" />
               </div>
             </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label">Site Location</label>
-                <input className="form-control" value={form.site_location} onChange={e => set('site_location', e.target.value)} placeholder="Site A, Warehouse..." />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Req. No</label>
-                <input className="form-control" value="Auto generated after submit" disabled />
-              </div>
+            <div className="form-group">
+              <label className="form-label">Site Location</label>
+              <input className="form-control" value={form.site_location} onChange={e => set('site_location', e.target.value)} placeholder="Site A, Warehouse..." />
             </div>
             <div className="form-row">
               <div className="form-group">
                 <label className="form-label">Requisition By</label>
                 <input className="form-control" value={form.approved_by} onChange={e => set('approved_by', e.target.value)} placeholder="Engineer name" />
               </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Purpose</label>
-              <input className="form-control" value={form.purpose} onChange={e => set('purpose', e.target.value)} placeholder="Main line installation..." />
+              <div className="form-group">
+                <label className="form-label">Purpose</label>
+                <input className="form-control" value={form.purpose} onChange={e => set('purpose', e.target.value)} placeholder="Main line installation..." />
+              </div>
             </div>
             <div className="form-group">
               <label className="form-label">Remarks</label>
@@ -152,7 +175,7 @@ function IssueModal({ projectId, projectName, products, onSave, onClose }) {
           </div>
           <div className="modal-footer">
             <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn btn-danger" disabled={saving}>{saving ? 'Saving...' : '↓ Record Issue'}</button>
+            <button type="submit" className="btn btn-danger" disabled={saving}>{saving ? 'Saving...' : 'Record Issue'}</button>
           </div>
         </form>
       </div>
@@ -306,19 +329,27 @@ export default function Issues() {
       setItems(iRes.data);
       setProducts(pRes.data);
       setProjectName(prRes.data.find(item => item.id === projectId)?.name || '');
-    } catch { toast.error('Failed to load'); }
-    finally { setLoading(false); }
+    } catch {
+      toast.error('Failed to load');
+    } finally {
+      setLoading(false);
+    }
   }, [projectId, search, fromDate, toDate]);
 
   useEffect(() => { load(); }, [load]);
 
   const handleDelete = async (id) => {
     if (!window.confirm('Delete this issue? Stock will be restored.')) return;
-    try { await deleteIssue(id); toast.success('Deleted & stock restored'); load(); }
-    catch (err) { toast.error(err.response?.data?.error || 'Failed'); }
+    try {
+      await deleteIssue(id);
+      toast.success('Deleted and stock restored');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed');
+    }
   };
 
-  const totalQty = items.reduce((s, i) => s + (i.quantity || 0), 0);
+  const totalQty = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
 
   return (
     <div>
@@ -329,7 +360,7 @@ export default function Issues() {
         </div>
       </div>
       <div className="page-content">
-        <div className="metrics-grid" style={{gridTemplateColumns:'repeat(2,1fr)', marginBottom:'16px'}}>
+        <div className="metrics-grid" style={{ gridTemplateColumns: 'repeat(2,1fr)', marginBottom: '16px' }}>
           <div className="metric-card danger">
             <div className="metric-label">Total Issues</div>
             <div className="metric-value">{items.length}</div>
@@ -355,7 +386,7 @@ export default function Issues() {
                 </thead>
                 <tbody>
                   {items.length === 0 ? (
-                    <tr className="no-hover"><td colSpan={10} className="text-muted" style={{textAlign:'center',padding:'40px'}}>No issue records found</td></tr>
+                    <tr className="no-hover"><td colSpan={10} className="text-muted" style={{ textAlign: 'center', padding: '40px' }}>No issue records found</td></tr>
                   ) : items.map(item => (
                     <tr key={item.id} className="no-hover">
                       <td className="text-muted">{formatDateBD(item.issue_date)}</td>
@@ -363,12 +394,12 @@ export default function Issues() {
                       <td>{item.issued_to}</td>
                       <td>{item.project || item.project_name || '-'}</td>
                       <td>{item.site_location || item.location || '-'}</td>
-                      <td className="text-primary">{item.request_number || '—'}</td>
+                      <td className="text-primary">{item.request_number || '-'}</td>
                       <td className="text-danger fw-600">-{Number(item.quantity).toLocaleString()} {item.unit}</td>
-                      <td className="text-muted" style={{maxWidth:'140px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.purpose || '—'}</td>
-                      <td className="text-muted">{item.approved_by || '—'}</td>
+                      <td className="text-muted" style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.purpose || '-'}</td>
+                      <td className="text-muted">{item.approved_by || '-'}</td>
                       <td>
-                        <div className="flex gap-2" style={{flexWrap:'wrap'}}>
+                        <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
                           <button className="btn btn-secondary btn-sm" onClick={() => printIssueInvoice(item, items)}>PDF</button>
                           {hasPermission('Delete Products') && <button className="btn btn-danger btn-sm" onClick={() => handleDelete(item.id)}>Del</button>}
                         </div>
