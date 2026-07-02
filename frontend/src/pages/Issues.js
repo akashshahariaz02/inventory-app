@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
-import { getIssues, createIssue, deleteIssue, getProducts, getProjects } from '../api';
+import { getIssues, createIssue, deleteIssue, deleteIssueGroup, getProducts, getProjects } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useParams } from 'react-router-dom';
 import { formatDateBD, todayBD } from '../utils/dates';
@@ -338,10 +338,18 @@ export default function Issues() {
 
   useEffect(() => { load(); }, [load]);
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Delete this issue? Stock will be restored.')) return;
+  const issueGroups = Object.values(items.reduce((groups, item) => {
+    const key = item.request_number || item.id;
+    if (!groups[key]) groups[key] = { ...item, items: [] };
+    groups[key].items.push(item);
+    return groups;
+  }, {}));
+
+  const handleDeleteGroup = async (group) => {
+    if (!window.confirm(`Delete issue "${group.request_number || group.id}"? Stock for all items will be restored.`)) return;
     try {
-      await deleteIssue(id);
+      if (group.request_number) await deleteIssueGroup(group.request_number, projectId);
+      else await deleteIssue(group.id);
       toast.success('Deleted and stock restored');
       load();
     } catch (err) {
@@ -363,7 +371,7 @@ export default function Issues() {
         <div className="metrics-grid" style={{ gridTemplateColumns: 'repeat(2,1fr)', marginBottom: '16px' }}>
           <div className="metric-card danger">
             <div className="metric-label">Total Issues</div>
-            <div className="metric-value">{items.length}</div>
+            <div className="metric-value">{issueGroups.length}</div>
           </div>
           <div className="metric-card">
             <div className="metric-label">Total Issued Qty</div>
@@ -382,26 +390,32 @@ export default function Issues() {
             {loading ? <div className="page-loading"><div className="spinner"></div></div> : (
               <table>
                 <thead>
-                  <tr><th>Date</th><th>Product</th><th>Issued To</th><th>Project</th><th>Site Location</th><th>Req. No</th><th>Quantity</th><th>Purpose</th><th>Requisition By</th><th>Actions</th></tr>
+                  <tr><th>Date</th><th>Req. No</th><th>Issued To</th><th>Project</th><th>Site Location</th><th>Items</th><th>Purpose</th><th>Requisition By</th><th>Actions</th></tr>
                 </thead>
                 <tbody>
-                  {items.length === 0 ? (
-                    <tr className="no-hover"><td colSpan={10} className="text-muted" style={{ textAlign: 'center', padding: '40px' }}>No issue records found</td></tr>
-                  ) : items.map(item => (
-                    <tr key={item.id} className="no-hover">
-                      <td className="text-muted">{formatDateBD(item.issue_date)}</td>
-                      <td><strong>{item.product_name}</strong>{item.size && <span className="text-muted"> {item.size}</span>}</td>
-                      <td>{item.issued_to}</td>
-                      <td>{item.project || item.project_name || '-'}</td>
-                      <td>{item.site_location || item.location || '-'}</td>
-                      <td className="text-primary">{item.request_number || '-'}</td>
-                      <td className="text-danger fw-600">-{Number(item.quantity).toLocaleString()} {item.unit}</td>
-                      <td className="text-muted" style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.purpose || '-'}</td>
-                      <td className="text-muted">{item.approved_by || '-'}</td>
+                  {issueGroups.length === 0 ? (
+                    <tr className="no-hover"><td colSpan={9} className="text-muted" style={{ textAlign: 'center', padding: '40px' }}>No issue records found</td></tr>
+                  ) : issueGroups.map(group => (
+                    <tr key={group.request_number || group.id} className="no-hover">
+                      <td className="text-muted">{formatDateBD(group.issue_date)}</td>
+                      <td className="text-primary fw-600">{group.request_number || '-'}</td>
+                      <td>{group.issued_to}</td>
+                      <td>{group.project || group.project_name || '-'}</td>
+                      <td>{group.site_location || group.location || '-'}</td>
+                      <td>
+                        {group.items.map(item => (
+                          <div key={item.id}>
+                            <strong>{item.product_name}</strong>{item.size && <span className="text-muted"> {item.size}</span>}
+                            <span className="text-danger fw-600"> -{Number(item.quantity).toLocaleString()} {item.unit}</span>
+                          </div>
+                        ))}
+                      </td>
+                      <td className="text-muted" style={{ maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.purpose || '-'}</td>
+                      <td className="text-muted">{group.approved_by || '-'}</td>
                       <td>
                         <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
-                          <button className="btn btn-secondary btn-sm" onClick={() => printIssueInvoice(item, items)}>PDF</button>
-                          {hasPermission('Delete Products') && <button className="btn btn-danger btn-sm" onClick={() => handleDelete(item.id)}>Del</button>}
+                          <button className="btn btn-secondary btn-sm" onClick={() => printIssueInvoice(group, items)}>PDF</button>
+                          {hasPermission('Delete Products') && <button className="btn btn-danger btn-sm" onClick={() => handleDeleteGroup(group)}>Del</button>}
                         </div>
                       </td>
                     </tr>

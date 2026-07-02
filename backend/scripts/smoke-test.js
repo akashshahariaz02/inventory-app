@@ -223,6 +223,17 @@ async function testProductProcurementIssue() {
   assert.strictEqual(Number(updatedProduct.data.current_stock), 75, 'multi issue should reduce first product stock');
   assert.strictEqual(Number(updatedCustomUnitProduct.data.current_stock), 5, 'multi issue should reduce second product stock');
 
+  const deleteMultiIssue = await request(`/issues/group/${multiIssue.data.request_number}?project_id=${ids.project}`, {
+    method: 'DELETE',
+    token
+  });
+  assert.strictEqual(deleteMultiIssue.res.status, 200, 'grouped issue delete should work');
+
+  const restoredProduct = await request(`/products/${productId}`, { token });
+  const restoredCustomUnitProduct = await request(`/products/${customUnitProductId}`, { token });
+  assert.strictEqual(Number(restoredProduct.data.current_stock), 80, 'group delete should restore first product stock');
+  assert.strictEqual(Number(restoredCustomUnitProduct.data.current_stock), 7, 'group delete should restore second product stock');
+
   const badIssue = await request('/issues', {
     method: 'POST',
     token,

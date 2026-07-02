@@ -66,6 +66,7 @@ export const getIssues = (params) => API.get('/issues', { params });
 export const createIssue = (data) => API.post('/issues', data);
 export const updateIssue = (id, data) => API.put(`/issues/${id}`, data);
 export const deleteIssue = (id) => API.delete(`/issues/${id}`);
+export const deleteIssueGroup = (requestNumber, projectId) => API.delete(`/issues/group/${encodeURIComponent(requestNumber)}`, { params: { project_id: projectId } });
 export const getLocations = () => API.get('/issues/meta/locations');
 
 // Requests

@@ -192,6 +192,27 @@ router.put('/:id', authenticateToken, requireRole('admin'), async (req, res) => 
 res.json({ message: 'Issue updated' });
 });
 
+// Delete a grouped issue by request number
+router.delete('/group/:requestNumber', authenticateToken, requireRole('admin'), requireProjectAccess(req => req.query.project_id), async (req, res) => {
+  const { project_id } = req.query;
+  const { requestNumber } = req.params;
+  if (!project_id) return res.status(400).json({ error: 'project_id required' });
+
+  const issues = await db.all('SELECT * FROM issues WHERE project_id = ? AND request_number = ?', project_id, requestNumber);
+  if (!issues.length) return res.status(404).json({ error: 'Issue not found' });
+
+  const productIds = [...new Set(issues.map(issue => issue.product_id))];
+  await db.transaction(async tx => {
+    await tx.run('DELETE FROM issues WHERE project_id = ? AND request_number = ?', project_id, requestNumber);
+    for (const productId of productIds) {
+      await recalculateProductStock(tx, productId);
+    }
+    await logAudit(tx, req.user.id, 'DELETE', 'issues', requestNumber, issues, null, 'Issue group deleted');
+  });
+
+  res.json({ message: 'Issue deleted, stock restored', deleted: issues.length });
+});
+
 // Delete issue
 router.delete('/:id', authenticateToken, requireRole('admin'), async (req, res) => {
   const issue = await db.get('SELECT * FROM issues WHERE id = ?', req.params.id);
